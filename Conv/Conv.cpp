@@ -8,11 +8,11 @@
 #include <string>
 
 // Структура для хранения тензора
-struct Tensor4D {
+struct Tensor4D_NCHW {
     std::vector<float> data;
     size_t B_dim, C_dim, H_dim, W_dim;
 
-    Tensor4D(size_t b = 0, size_t c = 0, size_t h = 0, size_t w = 0)
+    Tensor4D_NCHW(size_t b = 0, size_t c = 0, size_t h = 0, size_t w = 0)
         : B_dim(b), C_dim(c), H_dim(h), W_dim(w), data(b* c* h* w, 0.0f) {}
 
     inline float& operator()(size_t n, size_t c, size_t h, size_t w) {
@@ -26,49 +26,98 @@ struct Tensor4D {
     }
     size_t size() const { return data.size(); }
     void fill(float val) { std::fill(data.begin(), data.end(), val); }
-};
 
-// Вспомогательные функции
-// Паддинг остается как отдельная утилита
-Tensor4D pad_same_3x3(const Tensor4D& input) {
-    Tensor4D padded_output(input.B_dim, input.C_dim, input.H_dim + 2, input.W_dim + 2);
-    for (size_t n = 0; n < input.B_dim; ++n) {
-        for (size_t c = 0; c < input.C_dim; ++c) {
-            for (size_t h = 0; h < input.H_dim; ++h) {
-                for (size_t w = 0; w < input.W_dim; ++w) {
-                    padded_output(n, c, h + 1, w + 1) = input(n, c, h, w);
+    Tensor4D_NCHW pad_same_3x3() const {
+        Tensor4D_NCHW padded_output(this->B_dim, this->C_dim, this->H_dim + 2, this->W_dim + 2);
+        for (size_t n = 0; n < this->B_dim; ++n) {
+            for (size_t c = 0; c < this->C_dim; ++c) {
+                for (size_t h = 0; h < this->H_dim; ++h) {
+                    for (size_t w = 0; w < this->W_dim; ++w) {
+                        padded_output(n, c, h + 1, w + 1) = (*this)(n, c, h, w);
+                    }
                 }
             }
         }
+        return padded_output;
     }
-    return padded_output;
-}
 
-Tensor4D concatenateChannels(const Tensor4D& t1, const Tensor4D& t2) {
-    assert(t1.B_dim == t2.B_dim && t1.H_dim == t2.H_dim && t1.W_dim == t2.W_dim);
-    size_t N = t1.B_dim, C1 = t1.C_dim, C2 = t2.C_dim, H = t1.H_dim, W = t1.W_dim;
-    size_t C_total = C1 + C2;
-    Tensor4D result(N, C_total, H, W);
-    for (size_t n = 0; n < N; ++n) {
-        for (size_t h = 0; h < H; ++h) {
-            for (size_t w = 0; w < W; ++w) {
-                for (size_t c = 0; c < C1; ++c) result(n, c, h, w) = t1(n, c, h, w);
-                for (size_t c = 0; c < C2; ++c) result(n, C1 + c, h, w) = t2(n, c, h, w);
+    Tensor4D_NCHW concatenateChannels(const Tensor4D_NCHW& t2) const {
+        assert(this->B_dim == t2.B_dim && this->H_dim == t2.H_dim && this->W_dim == t2.W_dim);
+        size_t N = this->B_dim, C1 = this->C_dim, C2 = t2.C_dim, H = this->H_dim, W = this->W_dim;
+        size_t C_total = C1 + C2;
+        Tensor4D_NCHW result(N, C_total, H, W);
+        for (size_t n = 0; n < N; ++n) {
+            for (size_t h = 0; h < H; ++h) {
+                for (size_t w = 0; w < W; ++w) {
+                    for (size_t c = 0; c < C1; ++c) result(n, c, h, w) = (*this)(n, c, h, w);
+                    for (size_t c = 0; c < C2; ++c) result(n, C1 + c, h, w) = t2(n, c, h, w);
+                }
             }
         }
+        return result;
     }
-    return result;
-}
+};
+
+struct Tensor4D_NHWC {
+    std::vector<float> data;
+    size_t B_dim, H_dim, W_dim, C_dim;
+
+    Tensor4D_NHWC(size_t b = 0, size_t h = 0, size_t w = 0, size_t c = 0)
+        : B_dim(b), H_dim(h), W_dim(w), C_dim(c), data(b* c* h* w, 0.0f) {}
+
+    inline float& operator()(size_t n, size_t h, size_t w, size_t c) {
+        return data[n * H_dim * W_dim * C_dim + h * W_dim * C_dim  + w * C_dim + c];
+    }
+    inline const float& operator()(size_t n, size_t h, size_t w, size_t c) const {
+        return data[n * H_dim * W_dim * C_dim + h * W_dim * C_dim + w * C_dim + c];
+    }
+    void setRandom(std::mt19937& rng, std::uniform_real_distribution<float>& dist) {
+        for (float& val : data) { val = dist(rng); }
+    }
+    size_t size() const { return data.size(); }
+    void fill(float val) { std::fill(data.begin(), data.end(), val); }
+
+    Tensor4D_NHWC pad_same_3x3() const {
+        Tensor4D_NHWC padded_output(this->B_dim, this->H_dim + 2, this->W_dim + 2, this->C_dim);
+        for (size_t n = 0; n < this->B_dim; ++n) {
+            for (size_t h = 0; h < this->H_dim; ++h) {
+                for (size_t w = 0; w < this->W_dim; ++w) {
+                    for (size_t c = 0; c < this->C_dim; ++c) {
+                    padded_output(n, h + 1, w + 1, c) = (*this)(n, h, w, c);
+                    }
+                }
+            }
+        }
+        return padded_output;
+    }
+
+    Tensor4D_NHWC concatenateChannels(const Tensor4D_NHWC& t2) const {
+        assert(this->B_dim == t2.B_dim && this->H_dim == t2.H_dim && this->W_dim == t2.W_dim);
+        size_t N = this->B_dim, C1 = this->C_dim, C2 = t2.C_dim, H = this->H_dim, W = this->W_dim;
+        size_t C_total = C1 + C2;
+        Tensor4D_NHWC result(N, H, W, C_total);
+        for (size_t n = 0; n < N; ++n) {
+            for (size_t h = 0; h < H; ++h) {
+                for (size_t w = 0; w < W; ++w) {
+                    for (size_t c = 0; c < C1; ++c) result(n, h, w, c) = (*this)(n, h, w, c);
+                    for (size_t c = 0; c < C2; ++c) result(n, h, w, C1 + c) = t2(n, h, w, c);
+                }
+            }
+        }
+        return result;
+    }
+
+};
 
 // Реализация сверток
 
 // Ожидает на вход тензор с уже примененным паддингом, если он нужен.
-Tensor4D convolve_basic(const Tensor4D& input_maybe_padded, const Tensor4D& kernel) {
+Tensor4D_NCHW convolve_basic(const Tensor4D_NCHW& input_maybe_padded, const Tensor4D_NCHW& kernel) {
     const size_t N = input_maybe_padded.B_dim;
     const size_t C_in = input_maybe_padded.C_dim;
     const size_t H_in = input_maybe_padded.H_dim; // Высота входа (может быть с паддингом)
     const size_t W_in = input_maybe_padded.W_dim; // Ширина входа (может быть с паддингом)
-    const size_t C_out = kernel.C_dim;
+    const size_t C_out = kernel.B_dim;
     const size_t KH = kernel.H_dim;
     const size_t KW = kernel.W_dim;
 
@@ -76,7 +125,7 @@ Tensor4D convolve_basic(const Tensor4D& input_maybe_padded, const Tensor4D& kern
     const size_t H_out = H_in - KH + 1;
     const size_t W_out = W_in - KW + 1;
 
-    Tensor4D output(N, C_out, H_out, W_out); // Создаем выходной тензор
+    Tensor4D_NCHW output(N, C_out, H_out, W_out); // Создаем выходной тензор
 
     for (size_t n = 0; n < N; ++n) {                 // Batch
         for (size_t c_out = 0; c_out < C_out; ++c_out) { // Output Channel
@@ -102,21 +151,21 @@ Tensor4D convolve_basic(const Tensor4D& input_maybe_padded, const Tensor4D& kern
 
 
 // Метод C: Объединенная свертка с 'if' внутри цикла
-Tensor4D convolve_fused_1x1_3x3_with_if(const Tensor4D& input,
-    const Tensor4D& kernel_1x1,
-    const Tensor4D& kernel_3x3)
+Tensor4D_NCHW convolve_fused_1x1_3x3_with_if(const Tensor4D_NCHW& input,
+    const Tensor4D_NCHW& kernel_1x1,
+    const Tensor4D_NCHW& kernel_3x3)
 {
     const size_t N = input.B_dim;
     const size_t C_in = input.C_dim;
     const size_t H_in = input.H_dim; // Оригинальная высота
     const size_t W_in = input.W_dim; // Оригинальная ширина
-    const size_t C_out_1x1 = kernel_1x1.C_dim;
-    const size_t C_out_3x3 = kernel_3x3.C_dim;
+    const size_t C_out_1x1 = kernel_1x1.B_dim;
+    const size_t C_out_3x3 = kernel_3x3.B_dim;
     const size_t C_out_total = C_out_1x1 + C_out_3x3;
 
     // Паддинг выполняется внутри этой функции, т.к. она "fused"
-    Tensor4D padded_input = pad_same_3x3(input);
-    Tensor4D output(N, C_out_total, H_in, W_in); // Выходной размер как у оригинала
+    Tensor4D_NCHW padded_input = input.pad_same_3x3();
+    Tensor4D_NCHW output(N, C_out_total, H_in, W_in); // Выходной размер как у оригинала
 
     for (size_t n = 0; n < N; ++n) {
         for (size_t h_out = 0; h_out < H_in; ++h_out) { // Цикл по оригинальным размерам
@@ -152,20 +201,20 @@ Tensor4D convolve_fused_1x1_3x3_with_if(const Tensor4D& input,
 
 
 // Метод D: Объединенная свертка без if
-Tensor4D convolve_fused_1x1_3x3_no_if(const Tensor4D& input,
-    const Tensor4D& kernel_1x1,
-    const Tensor4D& kernel_3x3)
+Tensor4D_NCHW convolve_fused_1x1_3x3_no_if(const Tensor4D_NCHW& input,
+    const Tensor4D_NCHW& kernel_1x1,
+    const Tensor4D_NCHW& kernel_3x3)
 {
     const size_t N = input.B_dim;
     const size_t C_in = input.C_dim;
     const size_t H_in = input.H_dim;
     const size_t W_in = input.W_dim;
-    const size_t C_out_1x1 = kernel_1x1.C_dim;
-    const size_t C_out_3x3 = kernel_3x3.C_dim;
+    const size_t C_out_1x1 = kernel_1x1.B_dim;
+    const size_t C_out_3x3 = kernel_3x3.B_dim;
     const size_t C_out_total = C_out_1x1 + C_out_3x3;
 
-    Tensor4D padded_input = pad_same_3x3(input); // Паддинг 
-    Tensor4D output(N, C_out_total, H_in, W_in); // Выходной размер как у оригинала
+    Tensor4D_NCHW padded_input = input.pad_same_3x3(); // Паддинг 
+    Tensor4D_NCHW output(N, C_out_total, H_in, W_in); // Выходной размер как у оригинала
 
     for (size_t n = 0; n < N; ++n) {
         for (size_t h_out = 0; h_out < H_in; ++h_out) { // Цикл по оригинальным размерам
@@ -199,8 +248,52 @@ Tensor4D convolve_fused_1x1_3x3_no_if(const Tensor4D& input,
     return output;
 }
 
+Tensor4D_NHWC convolve_basic(const Tensor4D_NHWC& input, const Tensor4D_NHWC& kernel) {
+    const size_t N = input.B_dim;
+    const size_t C_in = input.C_dim;
+    const size_t H_in = input.H_dim;
+    const size_t W_in = input.W_dim;
+    const size_t C_out = kernel.B_dim;
+    const size_t KH = kernel.H_dim;
+    const size_t KW = kernel.W_dim;
+
+    const size_t H_out = H_in - KH + 1;
+    const size_t W_out = W_in - KW + 1;
+
+    Tensor4D_NHWC output(N, H_out, W_out, C_out); // Создаем выходной тензор
+    for (int n = 0; n < N; n++)
+    {
+        for (int h_out = 0; h_out < H_out; h_out++)
+        {
+            for (int w_out = 0; w_out < W_out; w_out++)
+            {
+                for (int c_out = 0; c_out < C_out; c_out++)
+                {
+                    float accumulator = 0.0f;
+                    for (int kh = 0; kh < KH; kh++)
+                    {
+                        for (int kw = 0; kw < KW; kw++)
+                        {
+                            for (int c_in = 0; c_in < C_in; c_in++)
+                            {
+                                // не забыть n
+                                //accumulator += input[n][h_out + kh][w_out + kw][c_in] * kernel[c_out][kh][kw][c_in];
+                                accumulator += input(n,h_out + kh, w_out + kw,c_in) * kernel(c_out,kh,kw,c_in);
+
+                                //accumulator += input[n * KH * KW * C_in + (h_out + kh) * KW * C_in + (w_out + kw)* C_in + c_in] * kernel[c_out *(KH * KW * C_in) + kh* (KW * C_in) + kw* (C_in) + c_in];
+                            }
+                        }
+                    }
+                    output(n, h_out, w_out, c_out) = accumulator; //написал но странный формат хранени ядра 
+                }
+            }
+        }
+    }
+    return output;
+}
+
 // Функция для проверки близости тензоров
-double check_difference(const Tensor4D& t1, const Tensor4D& t2) {
+double check_difference(const Tensor4D_NCHW& t1, const Tensor4D_NCHW& t2) {
     if (t1.size() != t2.size() || t1.size() == 0) { return -1.0; }
     double diff_sum = 0.0;
     for (size_t i = 0; i < t1.data.size(); ++i) {
@@ -226,21 +319,20 @@ int main() {
     std::mt19937 rng(1234);
     std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
 
-    Tensor4D input(N_BATCH, C_IN_DIM, H_DIM, W_DIM);
+
+    // NCHW
+    Tensor4D_NCHW input(N_BATCH, C_IN_DIM, H_DIM, W_DIM);
     input.setRandom(rng, dist);
 
     // Ядра
-    Tensor4D kernel_1x1(1, C_OUT_1x1_DIM, 1, 1);
-    kernel_1x1.data.resize(C_OUT_1x1_DIM * C_IN_DIM);
+    Tensor4D_NCHW kernel_1x1(C_OUT_1x1_DIM, C_IN_DIM, 1, 1);
     for (float& v : kernel_1x1.data) v = dist(rng);
 
-    Tensor4D kernel_3x3(1, C_OUT_3x3_DIM, 3, 3);
-    kernel_3x3.data.resize(C_OUT_3x3_DIM * C_IN_DIM * 9);
+    Tensor4D_NCHW kernel_3x3(C_OUT_3x3_DIM, C_IN_DIM, 3, 3);
     for (float& v : kernel_3x3.data) v = dist(rng);
 
     // Ядро для метода B
-    Tensor4D kernel_combined_zeros(1, C_OUT_TOTAL_DIM, 3, 3);
-    kernel_combined_zeros.data.resize(C_OUT_TOTAL_DIM * C_IN_DIM * 9);
+    Tensor4D_NCHW kernel_combined_zeros(C_OUT_TOTAL_DIM, C_IN_DIM, 3, 3);
     for (size_t c_out = 0; c_out < C_OUT_1x1_DIM; ++c_out) {
         for (size_t c_in = 0; c_in < C_IN_DIM; ++c_in) {
             kernel_combined_zeros.data[c_out * (C_IN_DIM * 9) + c_in * 9 + 4] = kernel_1x1.data[c_out * C_IN_DIM + c_in];
@@ -257,20 +349,20 @@ int main() {
     }
 
     // Переменные для хранения результатов и времени
-    Tensor4D output_A, output_B, output_C, output_D;
+    Tensor4D_NCHW output_A, output_B, output_C, output_D;
     double total_duration_A = 0, total_duration_B = 0, total_duration_C = 0, total_duration_D = 0;
 
     // Прогрев
     std::cout << "Warming up..." << std::endl;
     for (int i = 0; i < WARMUP_ITERATIONS; ++i) {
         // Метод A
-        Tensor4D out1 = convolve_basic(input, kernel_1x1); // 1x1 на оригинальном входе
-        Tensor4D input_padded_A = pad_same_3x3(input);     // Паддинг для 3x3
-        Tensor4D out2 = convolve_basic(input_padded_A, kernel_3x3); // 3x3 на паддированном
-        output_A = concatenateChannels(out1, out2);
+        Tensor4D_NCHW out1 = convolve_basic(input, kernel_1x1); // 1x1 на оригинальном входе
+        Tensor4D_NCHW input_padded_A = input.pad_same_3x3();     // Паддинг для 3x3
+        Tensor4D_NCHW out2 = convolve_basic(input_padded_A, kernel_3x3); // 3x3 на паддированном
+        output_A = out1.concatenateChannels(out2);
 
         // Метод B
-        Tensor4D input_padded_B = pad_same_3x3(input); // Паддинг для 3x3
+        Tensor4D_NCHW input_padded_B = input.pad_same_3x3(); // Паддинг для 3x3
         output_B = convolve_basic(input_padded_B, kernel_combined_zeros); // 3x3 на паддированном
 
         //Методы C и D (паддинг внутри)
@@ -288,11 +380,11 @@ int main() {
     // Метод A
     for (int i = 0; i < N_ITERATIONS; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
-        Tensor4D out1 = convolve_basic(input, kernel_1x1);
-        Tensor4D input_padded_A = pad_same_3x3(input); // Паддинг перед 3x3
-        Tensor4D out2 = convolve_basic(input_padded_A, kernel_3x3);
+        Tensor4D_NCHW out1 = convolve_basic(input, kernel_1x1);
+        Tensor4D_NCHW input_padded_A = input.pad_same_3x3(); // Паддинг перед 3x3
+        Tensor4D_NCHW out2 = convolve_basic(input_padded_A, kernel_3x3);
         auto end = std::chrono::high_resolution_clock::now();
-        output_A = concatenateChannels(out1, out2);
+        output_A = out1.concatenateChannels(out2);
         total_duration_A += std::chrono::duration<double, std::milli>(end - start).count();
     }
     double avg_duration_A = total_duration_A / N_ITERATIONS;
@@ -301,7 +393,7 @@ int main() {
     // Метод B
     for (int i = 0; i < N_ITERATIONS; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
-        Tensor4D input_padded_B = pad_same_3x3(input); // Паддинг перед 3x3
+        Tensor4D_NCHW input_padded_B = input.pad_same_3x3(); // Паддинг перед 3x3
         output_B = convolve_basic(input_padded_B, kernel_combined_zeros);
         auto end = std::chrono::high_resolution_clock::now();
         total_duration_B += std::chrono::duration<double, std::milli>(end - start).count();
@@ -333,10 +425,10 @@ int main() {
     // Проверка на близость результатов
     std::cout << "\nChecking differences..." << std::endl;
     // Пересчитываем выход A один раз для финальной проверки
-    Tensor4D out1_final = convolve_basic(input, kernel_1x1);
-    Tensor4D input_padded_final = pad_same_3x3(input);
-    Tensor4D out2_final = convolve_basic(input_padded_final, kernel_3x3);
-    output_A = concatenateChannels(out1_final, out2_final);
+    Tensor4D_NCHW out1_final = convolve_basic(input, kernel_1x1);
+    Tensor4D_NCHW input_padded_final = input.pad_same_3x3();
+    Tensor4D_NCHW out2_final = convolve_basic(input_padded_final, kernel_3x3);
+    output_A = out1_final.concatenateChannels(out2_final);
     // Пересчитываем B, C, D для чистоты сравнения
     output_B = convolve_basic(input_padded_final, kernel_combined_zeros);
     output_C = convolve_fused_1x1_3x3_with_if(input, kernel_1x1, kernel_3x3);
@@ -349,5 +441,47 @@ int main() {
     std::cout << "Average absolute difference (A vs C): " << diff_AC << std::endl;
     std::cout << "Average absolute difference (A vs D): " << diff_AD << std::endl;
 
+    // NHWC
+
+    Tensor4D_NHWC input_NHWC(N_BATCH, H_DIM, W_DIM, C_IN_DIM);
+    input_NHWC.setRandom(rng, dist);
+
+    // Ядра
+    Tensor4D_NHWC kernel_1x1_NHWC(C_OUT_1x1_DIM, 1, 1, C_IN_DIM); // странный формат хранения 
+    for (float& v : kernel_1x1_NHWC.data) v = dist(rng);
+
+    Tensor4D_NHWC kernel_3x3_NHWC(C_OUT_1x1_DIM, 3, 3, C_IN_DIM);
+    for (float& v : kernel_3x3_NHWC.data) v = dist(rng);
+
+    // Переменные для хранения результатов и времени
+    Tensor4D_NHWC output_A_NHWC, output_B_NHWC, output_C_NHWC, output_D_NHWC;
+    double total_duration_A_NHWC = 0, total_duration_B_NHWC = 0, total_duration_C_NHWC = 0, total_duration_D_NHWC = 0;
+
+    // Прогрев
+    std::cout << "Warming up..." << std::endl;
+    for (int i = 0; i < WARMUP_ITERATIONS; ++i) {
+        // Метод A
+        Tensor4D_NHWC out1 = convolve_basic(input_NHWC, kernel_1x1_NHWC); // 1x1 на оригинальном входе
+        Tensor4D_NHWC input_padded_A = input_NHWC.pad_same_3x3();     // Паддинг для 3x3
+        Tensor4D_NHWC out2 = convolve_basic(input_padded_A, kernel_3x3_NHWC); // 3x3 на паддированном
+        output_A_NHWC = out1.concatenateChannels(out2);
+    }
+
+    // Замеры времени
+    std::cout << "Starting benchmarks (" << N_ITERATIONS << " iterations)..." << std::endl;
+    std::string method_A_name_NHWC = "Method A NHWC (Separate basic_conv + Concat)";
+
+    // Метод A
+    for (int i = 0; i < N_ITERATIONS; ++i) {
+        auto start = std::chrono::high_resolution_clock::now();
+        Tensor4D_NHWC out1 = convolve_basic(input_NHWC, kernel_1x1_NHWC); // 1x1 на оригинальном входе
+        Tensor4D_NHWC input_padded_A = input_NHWC.pad_same_3x3();     // Паддинг для 3x3
+        Tensor4D_NHWC out2 = convolve_basic(input_padded_A, kernel_3x3_NHWC); // 3x3 на паддированном
+        auto end = std::chrono::high_resolution_clock::now();
+        output_A_NHWC = out1.concatenateChannels(out2);
+        total_duration_A_NHWC += std::chrono::duration<double, std::milli>(end - start).count();
+    }
+    avg_duration_A = total_duration_A_NHWC / N_ITERATIONS;
+    std::cout << method_A_name_NHWC << " Average Time: " << avg_duration_A << " ms" << std::endl;
     return 0;
 }
