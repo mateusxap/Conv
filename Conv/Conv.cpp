@@ -219,26 +219,24 @@ Tensor4D_NCHW convolve_fused_1x1_3x3_no_if(const Tensor4D_NCHW& input,
     for (size_t n = 0; n < N; ++n) {
         for (size_t h_out = 0; h_out < H_in; ++h_out) { // Цикл по оригинальным размерам
             for (size_t w_out = 0; w_out < W_in; ++w_out) {
-                for (size_t c_in = 0; c_in < C_in; ++c_in) {
+                for (size_t c_in = 0; c_in < C_in; ++c_in) { 
 
                     // 3x3 part
                     for (size_t kh = 0; kh < 3; ++kh) {
                         for (size_t kw = 0; kw < 3; ++kw) {
-                            float input_val_3x3 = padded_input(n, c_in, h_out + kh, w_out + kw);
-                            size_t kernel_3x3_base_idx = c_in * 9 + kh * 3 + kw;
+                            float input_val_3x3 = padded_input(n, c_in, h_out + kh, w_out + kw); 
                             for (size_t c_out3 = 0; c_out3 < C_out_3x3; ++c_out3) {
-                                size_t kernel_3x3_full_idx = c_out3 * (C_in * 9) + kernel_3x3_base_idx;
-                                output(n, C_out_1x1 + c_out3, h_out, w_out) += input_val_3x3 * kernel_3x3.data[kernel_3x3_full_idx];
+                                size_t kernel_3x3_full_idx = c_out3 * (C_in * 9) + c_in * 9 + kh * 3 + kw;
+                                output(n, C_out_1x1 + c_out3, h_out, w_out) += input_val_3x3 * kernel_3x3.data[kernel_3x3_full_idx]; // проскок тут как у кернела так и у выходной картинки 
                             }
                         }
                     }
 
                     // 1x1 part
                     float input_val_center = padded_input(n, c_in, h_out + 1, w_out + 1);
-                    size_t kernel_1x1_base_idx = c_in;
                     for (size_t c_out1 = 0; c_out1 < C_out_1x1; ++c_out1) {
-                        size_t kernel_1x1_full_idx = c_out1 * C_in + kernel_1x1_base_idx;
-                        output(n, c_out1, h_out, w_out) += input_val_center * kernel_1x1.data[kernel_1x1_full_idx];
+                        size_t kernel_1x1_full_idx = c_out1 * C_in + c_in;
+                        output(n, c_out1, h_out, w_out) += input_val_center * kernel_1x1.data[kernel_1x1_full_idx]; // проскок тут как у кернела так и у выходной картинки 
                     }
 
                 }
@@ -292,6 +290,53 @@ Tensor4D_NHWC convolve_basic(const Tensor4D_NHWC& input, const Tensor4D_NHWC& ke
     return output;
 }
 
+// Метод D: Объединенная свертка без if
+Tensor4D_NHWC convolve_fused_1x1_3x3_no_if(const Tensor4D_NHWC& input,
+    const Tensor4D_NHWC& kernel_1x1,
+    const Tensor4D_NHWC& kernel_3x3)
+{
+    const size_t N = input.B_dim;
+    const size_t C_in = input.C_dim;
+    const size_t H_in = input.H_dim;
+    const size_t W_in = input.W_dim;
+    const size_t C_out_1x1 = kernel_1x1.B_dim;
+    const size_t C_out_3x3 = kernel_3x3.B_dim;
+    const size_t C_out_total = C_out_1x1 + C_out_3x3;
+
+    Tensor4D_NHWC padded_input = input.pad_same_3x3(); // Паддинг 
+    Tensor4D_NHWC output(N, H_in, W_in, C_out_total); // Выходной размер как у оригинала
+
+    for (size_t n = 0; n < N; ++n) {
+        for (size_t h_out = 0; h_out < H_in; ++h_out) { // Цикл по оригинальным размерам
+            for (size_t w_out = 0; w_out < W_in; ++w_out) {
+                // 3x3 part
+                for (size_t kh = 0; kh < 3; ++kh) {
+                    for (size_t kw = 0; kw < 3; ++kw) {
+                        for (size_t c_in = 0; c_in < C_in; ++c_in) {
+                            float input_val_3x3 = padded_input(n, h_out + kh, w_out + kw, c_in);
+                            for (size_t c_out3 = 0; c_out3 < C_out_3x3; ++c_out3) {
+                                size_t kernel_3x3_flat_idx = c_out3 * (3 * 3 * C_in) +  kh * (3 * C_in) + kw * (C_in)+ c_in;
+                                output(n, h_out, w_out, C_out_1x1 + c_out3) += input_val_3x3 * kernel_3x3.data[kernel_3x3_flat_idx];
+                                /*size_t kernel_3x3_full_idx = c_out3 * (C_in * 9) + c_in * 9 + kh * 3 + kw;
+                                output(n, h_out, w_out, C_out_1x1 + c_out3) += input_val_3x3 * kernel_3x3.data[kernel_3x3_full_idx]*/; // плохо проходимся только по кернелу (мб подогнать формат хранения)
+                            }
+                        }
+                    }
+                }
+                for (size_t c_in = 0; c_in < C_in; ++c_in) { // добавлен цикл (отн. NCHW) для проходжения по каналам
+                    // 1x1 part
+                    float input_val_center = padded_input(n, h_out + 1, w_out + 1, c_in);
+                    for (size_t c_out1 = 0; c_out1 < C_out_1x1; ++c_out1) {
+                        size_t kernel_1x1_full_idx = c_out1 * C_in + c_in;
+                        output(n, h_out, w_out, c_out1) += input_val_center * kernel_1x1.data[kernel_1x1_full_idx]; // опять же плохо проходимся по ядру но зато хорошо по выходному
+                    }
+                }
+            }
+        }
+    }
+    return output;
+}
+
 // Функция для проверки близости тензоров
 double check_difference(const Tensor4D_NCHW& t1, const Tensor4D_NCHW& t2) {
     if (t1.size() != t2.size() || t1.size() == 0) { return -1.0; }
@@ -301,6 +346,16 @@ double check_difference(const Tensor4D_NCHW& t1, const Tensor4D_NCHW& t2) {
     }
     return diff_sum / t1.size();
 }
+
+double check_difference(const Tensor4D_NHWC& t1, const Tensor4D_NHWC& t2) {
+    if (t1.size() != t2.size() || t1.size() == 0) { return -1.0; }
+    double diff_sum = 0.0;
+    for (size_t i = 0; i < t1.data.size(); ++i) {
+        diff_sum += std::fabs(t1.data[i] - t2.data[i]);
+    }
+    return diff_sum / t1.size();
+}
+
 
 
 int main() {
@@ -454,8 +509,8 @@ int main() {
     for (float& v : kernel_3x3_NHWC.data) v = dist(rng);
 
     // Переменные для хранения результатов и времени
-    Tensor4D_NHWC output_A_NHWC, output_B_NHWC, output_C_NHWC, output_D_NHWC;
-    double total_duration_A_NHWC = 0, total_duration_B_NHWC = 0, total_duration_C_NHWC = 0, total_duration_D_NHWC = 0;
+    Tensor4D_NHWC output_A_NHWC, output_D_NHWC;
+    double total_duration_A_NHWC = 0, total_duration_D_NHWC = 0;
 
     // Прогрев
     std::cout << "Warming up..." << std::endl;
@@ -465,6 +520,7 @@ int main() {
         Tensor4D_NHWC input_padded_A = input_NHWC.pad_same_3x3();     // Паддинг для 3x3
         Tensor4D_NHWC out2 = convolve_basic(input_padded_A, kernel_3x3_NHWC); // 3x3 на паддированном
         output_A_NHWC = out1.concatenateChannels(out2);
+        output_D_NHWC = convolve_fused_1x1_3x3_no_if(input_NHWC, kernel_1x1_NHWC, kernel_3x3_NHWC);
     }
 
     // Замеры времени
@@ -483,5 +539,19 @@ int main() {
     }
     avg_duration_A = total_duration_A_NHWC / N_ITERATIONS;
     std::cout << method_A_name_NHWC << " Average Time: " << avg_duration_A << " ms" << std::endl;
+
+    // Метод D (Fused no If)
+    for (int i = 0; i < N_ITERATIONS; ++i) {
+        auto start = std::chrono::high_resolution_clock::now();
+        output_D_NHWC = convolve_fused_1x1_3x3_no_if(input_NHWC, kernel_1x1_NHWC, kernel_3x3_NHWC);
+        auto end = std::chrono::high_resolution_clock::now();
+        total_duration_D_NHWC += std::chrono::duration<double, std::milli>(end - start).count();
+    }
+    avg_duration_D = total_duration_D_NHWC / N_ITERATIONS;
+    std::cout << method_D_name << " Average Time: " << avg_duration_D << " ms" << std::endl;
+
+    diff_AD = check_difference(output_A_NHWC, output_D_NHWC);
+    std::cout << "Average absolute difference (A vs D): " << diff_AD << std::endl;
+
     return 0;
 }
