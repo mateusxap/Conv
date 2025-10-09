@@ -310,53 +310,6 @@ Tensor4D_NHWC convolve_basic(const Tensor4D_NHWC &input, const Tensor4D_HWIO &ke
 	return output;
 }
 
-Tensor4D_NHWC convolve_basic(const Tensor4D_NHWC &input, const Tensor4D_HWIO &kernel)
-{
-	const size_t N = input.getB();
-	const size_t C_in = input.getC();
-	const size_t H_in = input.getH();
-	const size_t W_in = input.getW();
-	const size_t C_out = kernel.getB();
-	const size_t KH = kernel.getH();
-	const size_t KW = kernel.getW();
-
-	const size_t H_out = H_in - KH + 1;
-	const size_t W_out = W_in - KW + 1;
-
-	Tensor4D_NHWC output(N, H_out, W_out, C_out);
-#pragma omp parallel for collapse(2)
-	for (size_t n = 0; n < N; n++)
-	{
-		for (size_t h_out = 0; h_out < H_out; h_out++)
-		{
-			for (size_t w_out = 0; w_out < W_out; w_out++)
-			{
-				std::vector<float> accumulator(C_out, 0.0f);
-				for (size_t kh = 0; kh < KH; kh++)
-				{
-					for (size_t kw = 0; kw < KW; kw++)
-					{
-						for (size_t c_in = 0; c_in < C_in; c_in++)
-						{
-							float input_val = input(n, h_out + kh, w_out + kw, c_in);
-							for (size_t c_out = 0; c_out < C_out; c_out++)
-							{
-								// accumulator += input[n][h_out + kh][w_out + kw][c_in] * kernel[kh][kw][c_in][c_out];
-								accumulator[c_out] += input_val * kernel(kh, kw, c_in, c_out);
-							}
-						}
-					}
-				}
-				for (size_t c_out = 0; c_out < C_out; c_out++)
-				{
-					output(n, h_out, w_out, c_out) = accumulator[c_out];
-				}
-			}
-		}
-	}
-	return output;
-}
-
 std::vector<float> conv_optimized(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio,
 								  size_t N, size_t C_in, size_t H_in, size_t W_in,
 								  size_t C_out, size_t KH, size_t KW)
@@ -367,7 +320,7 @@ std::vector<float> conv_optimized(const std::vector<float> &input_NCHWc, const s
 	const size_t C_out_block = C_out / BLOCK_SIZE;
 	const size_t C_in_block = C_in / BLOCK_SIZE;
 	std::vector<float> output(N * H_out * W_out * C_out);
-#pragma omp parallel for collapse(2)
+#pragma omp parallel for collapse(3)
 	for (size_t n = 0; n < N; n++)
 	{
 		for (size_t c_out_block = 0; c_out_block < C_out_block; c_out_block++)
@@ -408,6 +361,7 @@ std::vector<float> conv_optimized(const std::vector<float> &input_NCHWc, const s
 			}
 		}
 	}
+	return output;
 }
 
 // Tensor4D_NHWC convolve_fused_1x1_3x3_no_if(const Tensor4D_NHWC &input,

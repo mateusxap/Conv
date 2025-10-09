@@ -208,6 +208,46 @@ int benchmark_NHWC_convs(size_t N_BATCH, size_t H_DIM, size_t W_DIM, size_t C_IN
 	return 0;
 }
 
+int benchmark_NCHWc_conv(size_t N_BATCH, size_t H_DIM, size_t W_DIM, size_t C_IN_DIM, size_t C_OUT_DIM, size_t KH, size_t KW, int N_ITERATIONS = 10, int WARMUP_ITERATIONS = 5)
+{
+	// init
+	std::mt19937 rng(1234);
+	std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+
+	std::vector<float> input_NCHWc(N_BATCH * C_IN_DIM * H_DIM * W_DIM);
+	for (float &val : input_NCHWc)
+	{
+		val = dist(rng);
+	}
+	std::vector<float> kernel_OIHWio(C_OUT_DIM * C_IN_DIM * KH * KW);
+	for (float &val : kernel_OIHWio)
+	{
+		val = dist(rng);
+	}
+
+	float total_duration = 0;
+	// Прогрев
+	std::cout << "Warming up..." << std::endl;
+	for (int i = 0; i < WARMUP_ITERATIONS; ++i)
+	{
+		auto output = conv_optimized(input_NCHWc, kernel_OIHWio, N_BATCH, C_IN_DIM, H_DIM, W_DIM, C_OUT_DIM, KH, KW);
+	}
+
+	// Замеры времени
+	std::cout << "Starting benchmarks (" << N_ITERATIONS << " iterations)..." << std::endl;
+	for (int i = 0; i < N_ITERATIONS; ++i)
+	{
+		auto start = std::chrono::high_resolution_clock::now();
+		auto output = conv_optimized(input_NCHWc, kernel_OIHWio, N_BATCH, C_IN_DIM, H_DIM, W_DIM, C_OUT_DIM, KH, KW);
+		auto end = std::chrono::high_resolution_clock::now();
+		total_duration += std::chrono::duration<double, std::milli>(end - start).count();
+	}
+	auto avg_duration = total_duration / N_ITERATIONS;
+	std::cout << "Optimized NCHWc Conv Average Time: " << avg_duration << " ms" << std::endl;
+
+	return 0;
+}
+
 int main()
 {
 	// Параметры
@@ -220,7 +260,8 @@ int main()
 	const int N_ITERATIONS = 10;
 	const int WARMUP_ITERATIONS = 5;
 
-	benchmark_NCHW_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
-	benchmark_NHWC_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
+	// benchmark_NCHW_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
+	// benchmark_NHWC_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
+	benchmark_NCHWc_conv(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_3x3_DIM, 3, 3, N_ITERATIONS, WARMUP_ITERATIONS);
 	return 0;
 }
