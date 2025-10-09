@@ -21,26 +21,26 @@ int benchmark_NCHW_convs(size_t N_BATCH, size_t H_DIM, size_t W_DIM, size_t C_IN
 	Tensor4D_NCHW kernel_combined_zeros(C_OUT_TOTAL_DIM, C_IN_DIM, 3, 3);
 	for (size_t c_out = 0; c_out < C_OUT_1x1_DIM; ++c_out)
 	{
-			for (size_t c_in = 0; c_in < C_IN_DIM; ++c_in)
-			{
-					// Cental el 3x3: (1,1)
-					kernel_combined_zeros(c_out, c_in, 1, 1) = kernel_1x1(c_out, c_in, 0, 0);
-			}
+		for (size_t c_in = 0; c_in < C_IN_DIM; ++c_in)
+		{
+			// Cental el 3x3: (1,1)
+			kernel_combined_zeros(c_out, c_in, 1, 1) = kernel_1x1(c_out, c_in, 0, 0);
+		}
 	}
 	for (size_t c_out = 0; c_out < C_OUT_3x3_DIM; ++c_out)
 	{
-			for (size_t c_in = 0; c_in < C_IN_DIM; ++c_in)
+		for (size_t c_in = 0; c_in < C_IN_DIM; ++c_in)
+		{
+			for (size_t kh = 0; kh < 3; ++kh)
 			{
-					for (size_t kh = 0; kh < 3; ++kh)
-					{
-							for (size_t kw = 0; kw < 3; ++kw)
-							{
-									// Сдвиг по выходным каналам для 3x3
-									kernel_combined_zeros(C_OUT_1x1_DIM + c_out, c_in, kh, kw) =
-											kernel_3x3(c_out, c_in, kh, kw);
-							}
-					}
+				for (size_t kw = 0; kw < 3; ++kw)
+				{
+					// Сдвиг по выходным каналам для 3x3
+					kernel_combined_zeros(C_OUT_1x1_DIM + c_out, c_in, kh, kw) =
+						kernel_3x3(c_out, c_in, kh, kw);
+				}
 			}
+		}
 	}
 
 	// Переменные для хранения результатов и времени
@@ -52,13 +52,13 @@ int benchmark_NCHW_convs(size_t N_BATCH, size_t H_DIM, size_t W_DIM, size_t C_IN
 	for (int i = 0; i < WARMUP_ITERATIONS; ++i)
 	{
 		// Метод A
-		Tensor4D_NCHW out1 = convolve_basic(input, kernel_1x1);					 // 1x1 на оригинальном входе
-		Tensor4D_NCHW input_padded_A = input.pad_same_3x3();						 // Паддинг для 3x3
+		Tensor4D_NCHW out1 = convolve_basic(input, kernel_1x1);			 // 1x1 на оригинальном входе
+		Tensor4D_NCHW input_padded_A = input.pad_same_3x3();			 // Паддинг для 3x3
 		Tensor4D_NCHW out2 = convolve_basic(input_padded_A, kernel_3x3); // 3x3 на паддированном
 		output_A = out1.concatenateChannels(out2);
 
 		// Метод B
-		Tensor4D_NCHW input_padded_B = input.pad_same_3x3();							// Паддинг для 3x3
+		Tensor4D_NCHW input_padded_B = input.pad_same_3x3();			  // Паддинг для 3x3
 		output_B = convolve_basic(input_padded_B, kernel_combined_zeros); // 3x3 на паддированном
 
 		// Методы C и D (паддинг внутри)
@@ -167,8 +167,8 @@ int benchmark_NHWC_convs(size_t N_BATCH, size_t H_DIM, size_t W_DIM, size_t C_IN
 	std::cout << "Warming up..." << std::endl;
 	for (int i = 0; i < WARMUP_ITERATIONS; ++i)
 	{
-		Tensor4D_NHWC out1 = convolve_basic(input, kernel_1x1);			// 1x1 на оригинальном входе
-		Tensor4D_NHWC input_padded_A = input.pad_same_3x3();							// Паддинг для 3x3
+		Tensor4D_NHWC out1 = convolve_basic(input, kernel_1x1);			 // 1x1 на оригинальном входе
+		Tensor4D_NHWC input_padded_A = input.pad_same_3x3();			 // Паддинг для 3x3
 		Tensor4D_NHWC out2 = convolve_basic(input_padded_A, kernel_3x3); // 3x3 на паддированном
 		output_A = out1.concatenateChannels(out2);
 		// output_D = convolve_fused_1x1_3x3_no_if(input, kernel_1x1, kernel_3x3);
@@ -182,8 +182,8 @@ int benchmark_NHWC_convs(size_t N_BATCH, size_t H_DIM, size_t W_DIM, size_t C_IN
 	for (int i = 0; i < N_ITERATIONS; ++i)
 	{
 		auto start = std::chrono::high_resolution_clock::now();
-		Tensor4D_NHWC out1 = convolve_basic(input, kernel_1x1);			// 1x1 на оригинальном входе
-		Tensor4D_NHWC input_padded_A = input.pad_same_3x3();							// Паддинг для 3x3
+		Tensor4D_NHWC out1 = convolve_basic(input, kernel_1x1);			 // 1x1 на оригинальном входе
+		Tensor4D_NHWC input_padded_A = input.pad_same_3x3();			 // Паддинг для 3x3
 		Tensor4D_NHWC out2 = convolve_basic(input_padded_A, kernel_3x3); // 3x3 на паддированном
 		auto end = std::chrono::high_resolution_clock::now();
 		output_A = out1.concatenateChannels(out2);
@@ -211,16 +211,16 @@ int benchmark_NHWC_convs(size_t N_BATCH, size_t H_DIM, size_t W_DIM, size_t C_IN
 int main()
 {
 	// Параметры
-	const size_t N_BATCH = 4;
+	const size_t N_BATCH = 1;
+	const size_t C_IN_DIM = 192;
 	const size_t H_DIM = 28;
 	const size_t W_DIM = 28;
-	const size_t C_IN_DIM = 64;
-	const size_t C_OUT_1x1_DIM = 32;
+	const size_t C_OUT_1x1_DIM = 64;
 	const size_t C_OUT_3x3_DIM = 48;
 	const int N_ITERATIONS = 10;
 	const int WARMUP_ITERATIONS = 5;
 
-	// benchmark_NCHW_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
+	benchmark_NCHW_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
 	benchmark_NHWC_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
 	return 0;
 }

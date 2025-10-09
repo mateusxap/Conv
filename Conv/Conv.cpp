@@ -1,4 +1,5 @@
 #include "Conv.hpp"
+#include <immintrin.h> // для AVX/SSE
 
 // ------ Tensor4D impl ------
 
@@ -82,7 +83,7 @@ Tensor4D_NCHW convolve_basic(const Tensor4D_NCHW &input_maybe_padded, const Tens
 	const size_t W_out = W_in - KW + 1;
 
 	Tensor4D_NCHW output(N, C_out, H_out, W_out);
-
+#pragma omp parallel for collapse(2)
 	for (size_t n = 0; n < N; ++n)
 	{ // Batch
 		for (size_t c_out = 0; c_out < C_out; ++c_out)
@@ -111,8 +112,8 @@ Tensor4D_NCHW convolve_basic(const Tensor4D_NCHW &input_maybe_padded, const Tens
 }
 
 Tensor4D_NCHW convolve_fused_1x1_3x3_with_if(const Tensor4D_NCHW &input,
-																						 const Tensor4D_NCHW &kernel_1x1,
-																						 const Tensor4D_NCHW &kernel_3x3)
+											 const Tensor4D_NCHW &kernel_1x1,
+											 const Tensor4D_NCHW &kernel_3x3)
 {
 	const size_t N = input.getB();
 	const size_t C_in = input.getC();
@@ -124,7 +125,7 @@ Tensor4D_NCHW convolve_fused_1x1_3x3_with_if(const Tensor4D_NCHW &input,
 
 	Tensor4D_NCHW padded_input = input.pad_same_3x3();
 	Tensor4D_NCHW output(N, C_out_total, H_in, W_in);
-
+#pragma omp parallel for collapse(2)
 	for (size_t n = 0; n < N; ++n)
 	{
 		for (size_t h_out = 0; h_out < H_in; ++h_out)
@@ -161,8 +162,8 @@ Tensor4D_NCHW convolve_fused_1x1_3x3_with_if(const Tensor4D_NCHW &input,
 }
 
 Tensor4D_NCHW convolve_fused_1x1_3x3_no_if(const Tensor4D_NCHW &input,
-																					 const Tensor4D_NCHW &kernel_1x1,
-																					 const Tensor4D_NCHW &kernel_3x3)
+										   const Tensor4D_NCHW &kernel_1x1,
+										   const Tensor4D_NCHW &kernel_3x3)
 {
 	const size_t N = input.getB();
 	const size_t C_in = input.getC();
@@ -174,7 +175,7 @@ Tensor4D_NCHW convolve_fused_1x1_3x3_no_if(const Tensor4D_NCHW &input,
 
 	Tensor4D_NCHW padded_input = input.pad_same_3x3();
 	Tensor4D_NCHW output(N, C_out_total, H_in, W_in);
-
+#pragma omp parallel for collapse(2)
 	for (size_t n = 0; n < N; ++n)
 	{
 		for (size_t h_out = 0; h_out < H_in; ++h_out)
@@ -276,6 +277,7 @@ Tensor4D_NHWC convolve_basic(const Tensor4D_NHWC &input, const Tensor4D_HWIO &ke
 	const size_t W_out = W_in - KW + 1;
 
 	Tensor4D_NHWC output(N, H_out, W_out, C_out);
+#pragma omp parallel for collapse(2)
 	for (size_t n = 0; n < N; n++)
 	{
 		for (size_t h_out = 0; h_out < H_out; h_out++)
@@ -306,6 +308,106 @@ Tensor4D_NHWC convolve_basic(const Tensor4D_NHWC &input, const Tensor4D_HWIO &ke
 		}
 	}
 	return output;
+}
+
+Tensor4D_NHWC convolve_basic(const Tensor4D_NHWC &input, const Tensor4D_HWIO &kernel)
+{
+	const size_t N = input.getB();
+	const size_t C_in = input.getC();
+	const size_t H_in = input.getH();
+	const size_t W_in = input.getW();
+	const size_t C_out = kernel.getB();
+	const size_t KH = kernel.getH();
+	const size_t KW = kernel.getW();
+
+	const size_t H_out = H_in - KH + 1;
+	const size_t W_out = W_in - KW + 1;
+
+	Tensor4D_NHWC output(N, H_out, W_out, C_out);
+#pragma omp parallel for collapse(2)
+	for (size_t n = 0; n < N; n++)
+	{
+		for (size_t h_out = 0; h_out < H_out; h_out++)
+		{
+			for (size_t w_out = 0; w_out < W_out; w_out++)
+			{
+				std::vector<float> accumulator(C_out, 0.0f);
+				for (size_t kh = 0; kh < KH; kh++)
+				{
+					for (size_t kw = 0; kw < KW; kw++)
+					{
+						for (size_t c_in = 0; c_in < C_in; c_in++)
+						{
+							float input_val = input(n, h_out + kh, w_out + kw, c_in);
+							for (size_t c_out = 0; c_out < C_out; c_out++)
+							{
+								// accumulator += input[n][h_out + kh][w_out + kw][c_in] * kernel[kh][kw][c_in][c_out];
+								accumulator[c_out] += input_val * kernel(kh, kw, c_in, c_out);
+							}
+						}
+					}
+				}
+				for (size_t c_out = 0; c_out < C_out; c_out++)
+				{
+					output(n, h_out, w_out, c_out) = accumulator[c_out];
+				}
+			}
+		}
+	}
+	return output;
+}
+
+std::vector<float> conv_optimized(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio,
+								  size_t N, size_t C_in, size_t H_in, size_t W_in,
+								  size_t C_out, size_t KH, size_t KW)
+{
+	const size_t H_out = H_in - KH + 1;
+	const size_t W_out = W_in - KW + 1;
+	const size_t BLOCK_SIZE = 8;
+	const size_t C_out_block = C_out / BLOCK_SIZE;
+	const size_t C_in_block = C_in / BLOCK_SIZE;
+	std::vector<float> output(N * H_out * W_out * C_out);
+#pragma omp parallel for collapse(2)
+	for (size_t n = 0; n < N; n++)
+	{
+		for (size_t c_out_block = 0; c_out_block < C_out_block; c_out_block++)
+		{
+			for (size_t h_out = 0; h_out < H_out; h_out++)
+			{
+				std::vector<float> accum_block(W_out * BLOCK_SIZE, 0.0f);
+				for (size_t c_in_block = 0; c_in_block < C_in_block; c_in_block++)
+				{
+					for (size_t kh = 0; kh < KH; kh++)
+					{
+						for (size_t kw = 0; kw < KW; kw++)
+						{
+							for (size_t w_out = 0; w_out < W_out; w_out++)
+							{
+								size_t h_in_coord = h_out + kh;
+								size_t w_in_coord = w_out + kw;
+								for (size_t c_in_inner = 0; c_in_inner < BLOCK_SIZE; c_in_inner++)
+								{
+									float input_val = input_NCHWc[n * C_in_block * H_out * BLOCK_SIZE * W_out + c_in_block * H_in * BLOCK_SIZE * W_in + h_in_coord * W_in * BLOCK_SIZE + w_in_coord * BLOCK_SIZE + c_in_inner];
+									for (size_t c_out_inner = 0; c_out_inner < BLOCK_SIZE; c_out_inner++)
+									{
+										float kernel_val = kernel_OIHWio[c_out_block * C_in_block * KH * KW * BLOCK_SIZE * BLOCK_SIZE + c_in_block * KH * KW * BLOCK_SIZE * BLOCK_SIZE + kh * KW * BLOCK_SIZE * BLOCK_SIZE + kw * BLOCK_SIZE * BLOCK_SIZE + c_in_inner * BLOCK_SIZE + c_out_inner];
+										accum_block[w_out * BLOCK_SIZE + c_out_inner] += input_val * kernel_val;
+									}
+								}
+							}
+						}
+					}
+				}
+				for (size_t w_out = 0; w_out < W_out; w_out++)
+				{
+					for (size_t c_out_inner = 0; c_out_inner < BLOCK_SIZE; c_out_inner++)
+					{
+						output[n * H_out * W_out * C_out + h_out * W_out * C_out + w_out * C_out + c_out_block * BLOCK_SIZE + c_out_inner] = accum_block[w_out * BLOCK_SIZE + c_out_inner];
+					}
+				}
+			}
+		}
+	}
 }
 
 // Tensor4D_NHWC convolve_fused_1x1_3x3_no_if(const Tensor4D_NHWC &input,
