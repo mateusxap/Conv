@@ -1,4 +1,7 @@
 ﻿#include "Conv.hpp"
+#include "omp.h"
+#include <algorithm>
+#include <vector>
 
 // int benchmark_NCHW_convs(size_t N_BATCH, size_t H_DIM, size_t W_DIM, size_t C_IN_DIM, size_t C_OUT_1x1_DIM, size_t C_OUT_3x3_DIM, int N_ITERATIONS = 10, int WARMUP_ITERATIONS = 5)
 // {
@@ -208,29 +211,31 @@
 // 	return 0;
 // }
 
-int benchmark_NCHWc_conv(size_t N_BATCH, size_t H_DIM, size_t W_DIM, size_t C_IN_DIM, size_t C_OUT_DIM, size_t KH, size_t KW, int N_ITERATIONS = 10, int WARMUP_ITERATIONS = 5)
+int benchmark_NCHWc_conv()
 {
 	// init
 	std::mt19937 rng(1234);
 	std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+	std::vector<float> output(N * H_in * W_in * C_out);
 
-	std::vector<float> input_NCHWc(N_BATCH * C_IN_DIM * H_DIM * W_DIM);
+	std::vector<float> input_NCHWc(N * C_in * H_in * W_in);
 	for (float &val : input_NCHWc)
 	{
 		val = dist(rng);
 	}
-	std::vector<float> kernel_OIHWio(C_OUT_DIM * C_IN_DIM * KH * KW);
+	std::vector<float> kernel_OIHWio(C_out * C_in * KH * KW);
 	for (float &val : kernel_OIHWio)
 	{
 		val = dist(rng);
 	}
 
-	float total_duration = 0;
+	std::vector<double> durations;
+	durations.reserve(N_ITERATIONS);
 	// Прогрев
 	std::cout << "Warming up..." << std::endl;
 	for (int i = 0; i < WARMUP_ITERATIONS; ++i)
 	{
-		auto output = conv_optimized(input_NCHWc, kernel_OIHWio, N_BATCH, C_IN_DIM, H_DIM, W_DIM, C_OUT_DIM, KH, KW);
+		conv_optimized(input_NCHWc, kernel_OIHWio, output);
 	}
 
 	// Замеры времени
@@ -238,30 +243,32 @@ int benchmark_NCHWc_conv(size_t N_BATCH, size_t H_DIM, size_t W_DIM, size_t C_IN
 	for (int i = 0; i < N_ITERATIONS; ++i)
 	{
 		auto start = std::chrono::high_resolution_clock::now();
-		auto output = conv_optimized(input_NCHWc, kernel_OIHWio, N_BATCH, C_IN_DIM, H_DIM, W_DIM, C_OUT_DIM, KH, KW);
+		conv_optimized(input_NCHWc, kernel_OIHWio, output);
 		auto end = std::chrono::high_resolution_clock::now();
-		total_duration += std::chrono::duration<double, std::milli>(end - start).count();
+		durations.push_back(std::chrono::duration<double, std::milli>(end - start).count());
 	}
-	auto avg_duration = total_duration / N_ITERATIONS;
-	std::cout << "Optimized NCHWc Conv Average Time: " << avg_duration << " ms" << std::endl;
+
+	std::sort(durations.begin(), durations.end());
+	double median_duration;
+	if (N_ITERATIONS % 2 == 0)
+	{
+		median_duration = (durations[N_ITERATIONS / 2 - 1] + durations[N_ITERATIONS / 2]) / 2.0;
+	}
+	else
+	{
+		median_duration = durations[N_ITERATIONS / 2];
+	}
+	std::cout << "Optimized NCHWc Conv Median Time: " << median_duration << " ms" << std::endl;
 
 	return 0;
 }
 
 int main()
 {
-	// Параметры
-	const size_t N_BATCH = 1;
-	const size_t C_IN_DIM = 1024;
-	const size_t H_DIM = 28;
-	const size_t W_DIM = 28;
-	const size_t C_OUT_1x1_DIM = 64;
-	const size_t C_OUT_3x3_DIM = 48;
-	const int N_ITERATIONS = 50;
-	const int WARMUP_ITERATIONS = 10;
-
-	// benchmark_NCHW_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
-	// benchmark_NHWC_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
-	benchmark_NCHWc_conv(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_3x3_DIM, 3, 3, N_ITERATIONS, WARMUP_ITERATIONS);
+	// omp_set_num_threads(8);
+	//   Параметры
+	//  benchmark_NCHW_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
+	//  benchmark_NHWC_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
+	benchmark_NCHWc_conv();
 	return 0;
 }

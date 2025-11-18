@@ -310,16 +310,8 @@
 // 	return output;
 // }
 
-std::vector<float> conv_optimized(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio,
-								  size_t N, size_t C_in, size_t H_in, size_t W_in,
-								  size_t C_out, size_t KH, size_t KW)
+std::vector<float> conv_optimized(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio, std::vector<float> &output)
 {
-	const size_t H_out = H_in - KH + 1;
-	const size_t W_out = W_in - KW + 1;
-	const size_t BLOCK_SIZE = 8;
-	const size_t C_out_block = C_out / BLOCK_SIZE;
-	const size_t C_in_block = C_in / BLOCK_SIZE;
-	std::vector<float> output(N * H_out * W_out * C_out);
 #pragma omp parallel for collapse(3)
 	for (size_t n = 0; n < N; n++)
 	{
@@ -327,7 +319,7 @@ std::vector<float> conv_optimized(const std::vector<float> &input_NCHWc, const s
 		{
 			for (size_t h_out = 0; h_out < H_out; h_out++)
 			{
-				std::vector<float> accum_block(W_out * BLOCK_SIZE, 0.0f);
+				std::array<float, W_out * BLOCK_SIZE> accum_block = {0};
 				for (size_t c_in_block = 0; c_in_block < C_in_block; c_in_block++)
 				{
 					for (size_t kh = 0; kh < KH; kh++)

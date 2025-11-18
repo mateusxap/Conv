@@ -1,13 +1,17 @@
 import torch
 import torch.nn as nn
 import time
+import statistics
+
+# --- Устанавливаем количество потоков ---
+torch.set_num_threads(8)
 
 # --- Параметры (должны совпадать с C++ кодом) ---
 N_BATCH = 1
-C_IN_DIM = 1024
+C_IN_DIM = 256
 H_DIM = 28
 W_DIM = 28
-C_OUT_DIM = 48 # Используем C_OUT_3x3_DIM из вашего main.cpp
+C_OUT_DIM = 256 # Используем C_OUT_3x3_DIM из вашего main.cpp
 KH = 3
 KW = 3
 N_ITERATIONS = 50
@@ -41,7 +45,7 @@ with torch.no_grad(): # Отключаем расчет градиентов д�
 
 # --- Замеры времени ---
 print(f"Starting benchmarks ({N_ITERATIONS} iterations)...")
-total_duration = 0.0
+durations = []
 with torch.no_grad():
     for _ in range(N_ITERATIONS):
         # Важно: синхронизация нужна для CUDA, но для CPU она не вредит и является хорошей практикой
@@ -53,10 +57,10 @@ with torch.no_grad():
         torch.cpu.synchronize()
         end_time = time.perf_counter()
         
-        total_duration += (end_time - start_time)
+        durations.append(end_time - start_time)
 
-avg_duration_ms = (total_duration / N_ITERATIONS) * 1000
-print(f"PyTorch Conv2d Average Time: {avg_duration_ms:.4f} ms")
+median_duration_ms = statistics.median(durations) * 1000
+print(f"PyTorch Conv2d Median Time: {median_duration_ms:.4f} ms")
 
 # Проверка размеров выходного тензора
 H_out = H_DIM - KH + 1

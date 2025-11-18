@@ -8,6 +8,8 @@
 #include <cmath>
 #include <numeric>
 #include <string>
+#include <immintrin.h>
+#include <array>
 
 class Tensor4D
 {
@@ -87,6 +89,21 @@ Tensor4D_NHWC convolve_fused_1x1_3x3_no_if(const Tensor4D_NHWC &input,
 										   const Tensor4D_NHWC &kernel_1x1,
 										   const Tensor4D_NHWC &kernel_3x3);
 
-std::vector<float> conv_optimized(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio,
-								  size_t N, size_t C_in, size_t H_in, size_t W_in,
-								  size_t C_out, size_t KH, size_t KW);
+const size_t N = 1;
+const size_t C_in = 256;
+const size_t H_in = 28;
+const size_t W_in = 28;
+const size_t C_out = 256;
+const int N_ITERATIONS = 100;
+const int WARMUP_ITERATIONS = 10;
+
+const size_t KH = 3;
+const size_t KW = 3;
+
+const size_t H_out = H_in - KH + 1;
+const size_t W_out = W_in - KW + 1;
+const size_t BLOCK_SIZE = 8;
+const size_t C_out_block = C_out / BLOCK_SIZE;
+const size_t C_in_block = C_in / BLOCK_SIZE;
+
+std::vector<float> conv_optimized(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio, std::vector<float> &output);
