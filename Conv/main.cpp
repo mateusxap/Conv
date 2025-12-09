@@ -216,8 +216,7 @@ int benchmark_NCHWc_conv()
 	// init
 	std::mt19937 rng(1234);
 	std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
-	std::vector<float> output(N * H_in * W_in * C_out);
-
+	std::vector<float> output(N * H_out * W_out * C_out);
 	std::vector<float> input_NCHWc(N * C_in * H_in * W_in);
 	for (float &val : input_NCHWc)
 	{
@@ -235,7 +234,7 @@ int benchmark_NCHWc_conv()
 	std::cout << "Warming up..." << std::endl;
 	for (int i = 0; i < WARMUP_ITERATIONS; ++i)
 	{
-		conv_optimized(input_NCHWc, kernel_OIHWio, output);
+		conv_optimized(input_NCHWc, kernel_OIHWio, output, C_out);
 	}
 
 	// Замеры времени
@@ -243,7 +242,7 @@ int benchmark_NCHWc_conv()
 	for (int i = 0; i < N_ITERATIONS; ++i)
 	{
 		auto start = std::chrono::high_resolution_clock::now();
-		conv_optimized(input_NCHWc, kernel_OIHWio, output);
+		conv_optimized(input_NCHWc, kernel_OIHWio, output, C_out);
 		auto end = std::chrono::high_resolution_clock::now();
 		durations.push_back(std::chrono::duration<double, std::milli>(end - start).count());
 	}
@@ -263,12 +262,117 @@ int benchmark_NCHWc_conv()
 	return 0;
 }
 
+int benchmark_NCHWc_convs_googlenet()
+{
+	// init
+	std::mt19937 rng(1234);
+	std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+
+	// Input
+	std::vector<float> input_NCHWc(N * C_in * H_in * W_in);
+	for (float &val : input_NCHWc)
+	{
+		val = dist(rng);
+	}
+
+	// Sizes
+	size_t C_out_1 = 384;
+	size_t C_out_2 = 192;
+	size_t C_out_3 = 48;
+	size_t C_out_combined = C_out_1 + C_out_2 + C_out_3; // 624
+
+	// Kernels
+	std::vector<float> kernel1(C_out_1 * C_in * KH * KW);
+	for (float &val : kernel1)
+		val = dist(rng);
+
+	std::vector<float> kernel2(C_out_2 * C_in * KH * KW);
+	for (float &val : kernel2)
+		val = dist(rng);
+
+	std::vector<float> kernel3(C_out_3 * C_in * KH * KW);
+	for (float &val : kernel3)
+		val = dist(rng);
+
+	std::vector<float> kernel_combined(C_out_combined * C_in * KH * KW);
+	for (float &val : kernel_combined)
+		val = dist(rng);
+
+	// Outputs
+	std::vector<float> output_combined(N * H_out * W_out * C_out_combined);
+	std::vector<float> output1(N * H_out * W_out * C_out_1);
+	std::vector<float> output2(N * H_out * W_out * C_out_2);
+	std::vector<float> output3(N * H_out * W_out * C_out_3);
+
+	// --- Benchmark Combined ---
+	std::vector<double> durations_combined;
+	durations_combined.reserve(N_ITERATIONS);
+
+	std::cout << "Warming up Combined..." << std::endl;
+	for (int i = 0; i < WARMUP_ITERATIONS; ++i)
+	{
+		conv_optimized(input_NCHWc, kernel_combined, output_combined, C_out_combined);
+	}
+
+	std::cout << "Benchmarking Combined (" << N_ITERATIONS << " iterations)..." << std::endl;
+	for (int i = 0; i < N_ITERATIONS; ++i)
+	{
+		auto start = std::chrono::high_resolution_clock::now();
+		conv_optimized(input_NCHWc, kernel_combined, output_combined, C_out_combined);
+		auto end = std::chrono::high_resolution_clock::now();
+		durations_combined.push_back(std::chrono::duration<double, std::milli>(end - start).count());
+	}
+
+	// --- Benchmark Sequential ---
+	std::vector<double> durations_sequential;
+	durations_sequential.reserve(N_ITERATIONS);
+
+	std::cout << "Warming up Sequential..." << std::endl;
+	for (int i = 0; i < WARMUP_ITERATIONS; ++i)
+	{
+		conv_optimized(input_NCHWc, kernel1, output1, C_out_1);
+		conv_optimized(input_NCHWc, kernel2, output2, C_out_2);
+		conv_optimized(input_NCHWc, kernel3, output3, C_out_3);
+	}
+
+	std::cout << "Benchmarking Sequential (" << N_ITERATIONS << " iterations)..." << std::endl;
+	for (int i = 0; i < N_ITERATIONS; ++i)
+	{
+		auto start = std::chrono::high_resolution_clock::now();
+		conv_optimized(input_NCHWc, kernel1, output1, C_out_1);
+		conv_optimized(input_NCHWc, kernel2, output2, C_out_2);
+		conv_optimized(input_NCHWc, kernel3, output3, C_out_3);
+		auto end = std::chrono::high_resolution_clock::now();
+		durations_sequential.push_back(std::chrono::duration<double, std::milli>(end - start).count());
+	}
+
+	// Results
+	auto get_median = [](std::vector<double> &v)
+	{
+		std::sort(v.begin(), v.end());
+		if (v.size() % 2 == 0)
+			return (v[v.size() / 2 - 1] + v[v.size() / 2]) / 2.0;
+		return v[v.size() / 2];
+	};
+
+	double median_combined = get_median(durations_combined);
+	double median_sequential = get_median(durations_sequential);
+
+	std::cout << "--------------------------------------------------" << std::endl;
+	std::cout << "Combined Conv (624) Median Time:   " << median_combined << " ms" << std::endl;
+	std::cout << "Sequential Convs (384+192+48) Median Time: " << median_sequential << " ms" << std::endl;
+	std::cout << "Speedup (Sequential / Combined): " << median_sequential / median_combined << "x" << std::endl;
+	std::cout << "--------------------------------------------------" << std::endl;
+
+	return 0;
+}
+
 int main()
 {
 	// omp_set_num_threads(8);
 	//   Параметры
 	//  benchmark_NCHW_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
 	//  benchmark_NHWC_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
-	benchmark_NCHWc_conv();
+	benchmark_NCHWc_convs_googlenet();
 	return 0;
 }

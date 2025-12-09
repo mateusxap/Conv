@@ -8,10 +8,10 @@ torch.set_num_threads(8)
 
 # --- Параметры (должны совпадать с C++ кодом) ---
 N_BATCH = 1
-C_IN_DIM = 256
+C_IN_DIM = 192
 H_DIM = 28
 W_DIM = 28
-C_OUT_DIM = 256 # Используем C_OUT_3x3_DIM из вашего main.cpp
+C_OUT_DIM = 160
 KH = 3
 KW = 3
 N_ITERATIONS = 50

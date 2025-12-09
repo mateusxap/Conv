@@ -310,12 +310,13 @@
 // 	return output;
 // }
 
-std::vector<float> conv_optimized(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio, std::vector<float> &output)
+std::vector<float> conv_optimized(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio, std::vector<float> &output, size_t C_out_curr)
 {
+	size_t C_out_block_curr = C_out_curr / BLOCK_SIZE;
 #pragma omp parallel for collapse(3)
 	for (size_t n = 0; n < N; n++)
 	{
-		for (size_t c_out_block = 0; c_out_block < C_out_block; c_out_block++)
+		for (size_t c_out_block = 0; c_out_block < C_out_block_curr; c_out_block++)
 		{
 			for (size_t h_out = 0; h_out < H_out; h_out++)
 			{
@@ -349,7 +350,7 @@ std::vector<float> conv_optimized(const std::vector<float> &input_NCHWc, const s
 #pragma omp simd simdlen(8)
 					for (size_t c_out_inner = 0; c_out_inner < BLOCK_SIZE; c_out_inner++)
 					{
-						output[n * H_out * W_out * C_out + h_out * W_out * C_out + w_out * C_out + c_out_block * BLOCK_SIZE + c_out_inner] = accum_block[w_out * BLOCK_SIZE + c_out_inner];
+						output[n * H_out * W_out * C_out_curr + h_out * W_out * C_out_curr + w_out * C_out_curr + c_out_block * BLOCK_SIZE + c_out_inner] = accum_block[w_out * BLOCK_SIZE + c_out_inner];
 					}
 				}
 			}
