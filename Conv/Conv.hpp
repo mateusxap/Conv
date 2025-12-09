@@ -90,10 +90,10 @@ Tensor4D_NHWC convolve_fused_1x1_3x3_no_if(const Tensor4D_NHWC &input,
 										   const Tensor4D_NHWC &kernel_3x3);
 
 const size_t N = 1;
-const size_t C_in = 832;
-const size_t H_in = 7;
-const size_t W_in = 7;
-const size_t C_out = 624; // 384 + 192 + 48
+const size_t C_in = 256;
+const size_t H_in = 28;
+const size_t W_in = 28;
+const size_t C_out = 128 + 96 + 32; // 384 + 192 + 48
 const int N_ITERATIONS = 1000;
 const int WARMUP_ITERATIONS = 10;
 

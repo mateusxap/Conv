@@ -359,8 +359,8 @@ int benchmark_NCHWc_convs_googlenet()
 	double median_sequential = get_median(durations_sequential);
 
 	std::cout << "--------------------------------------------------" << std::endl;
-	std::cout << "Combined Conv (624) Median Time:   " << median_combined << " ms" << std::endl;
-	std::cout << "Sequential Convs (384+192+48) Median Time: " << median_sequential << " ms" << std::endl;
+	std::cout << "Combined Conv " << C_out << " Median Time:   " << median_combined << " ms" << std::endl;
+	std::cout << "Sequential Convs Median Time: " << median_sequential << " ms" << std::endl;
 	std::cout << "Speedup (Sequential / Combined): " << median_sequential / median_combined << "x" << std::endl;
 	std::cout << "--------------------------------------------------" << std::endl;
 
