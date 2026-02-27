@@ -310,32 +310,32 @@
 // 	return output;
 // }
 
-std::vector<float> conv_optimized(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio, std::vector<float> &output, size_t C_out_curr)
+std::vector<float> conv_optimized(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio, std::vector<float> &output, int C_out_curr)
 {
-	size_t C_out_block_curr = C_out_curr / BLOCK_SIZE;
+	int C_out_block_curr = C_out_curr / BLOCK_SIZE;
 #pragma omp parallel for collapse(3)
-	for (size_t n = 0; n < N; n++)
+	for (int n = 0; n < N; n++)
 	{
-		for (size_t c_out_block = 0; c_out_block < C_out_block_curr; c_out_block++)
+		for (int c_out_block = 0; c_out_block < C_out_block_curr; c_out_block++)
 		{
-			for (size_t h_out = 0; h_out < H_out; h_out++)
+			for (int h_out = 0; h_out < H_out; h_out++)
 			{
 				std::array<float, W_out * BLOCK_SIZE> accum_block = {0};
-				for (size_t c_in_block = 0; c_in_block < C_in_block; c_in_block++)
+				for (int c_in_block = 0; c_in_block < C_in_block; c_in_block++)
 				{
-					for (size_t kh = 0; kh < KH; kh++)
+					for (int kh = 0; kh < KH; kh++)
 					{
-						for (size_t kw = 0; kw < KW; kw++)
+						for (int kw = 0; kw < KW; kw++)
 						{
-							for (size_t w_out = 0; w_out < W_out; w_out++)
+							for (int w_out = 0; w_out < W_out; w_out++)
 							{
-								size_t h_in_coord = h_out + kh;
-								size_t w_in_coord = w_out + kw;
-								for (size_t c_in_inner = 0; c_in_inner < BLOCK_SIZE; c_in_inner++)
+								int h_in_coord = h_out + kh;
+								int w_in_coord = w_out + kw;
+								for (int c_in_inner = 0; c_in_inner < BLOCK_SIZE; c_in_inner++)
 								{
 									float input_val = input_NCHWc[n * C_in_block * H_out * BLOCK_SIZE * W_out + c_in_block * H_in * BLOCK_SIZE * W_in + h_in_coord * W_in * BLOCK_SIZE + w_in_coord * BLOCK_SIZE + c_in_inner];
 #pragma omp simd simdlen(8)
-									for (size_t c_out_inner = 0; c_out_inner < BLOCK_SIZE; c_out_inner++)
+									for (int c_out_inner = 0; c_out_inner < BLOCK_SIZE; c_out_inner++)
 									{
 										float kernel_val = kernel_OIHWio[c_out_block * C_in_block * KH * KW * BLOCK_SIZE * BLOCK_SIZE + c_in_block * KH * KW * BLOCK_SIZE * BLOCK_SIZE + kh * KW * BLOCK_SIZE * BLOCK_SIZE + kw * BLOCK_SIZE * BLOCK_SIZE + c_in_inner * BLOCK_SIZE + c_out_inner];
 										accum_block[w_out * BLOCK_SIZE + c_out_inner] += input_val * kernel_val;
@@ -345,10 +345,10 @@ std::vector<float> conv_optimized(const std::vector<float> &input_NCHWc, const s
 						}
 					}
 				}
-				for (size_t w_out = 0; w_out < W_out; w_out++)
+				for (int w_out = 0; w_out < W_out; w_out++)
 				{
 #pragma omp simd simdlen(8)
-					for (size_t c_out_inner = 0; c_out_inner < BLOCK_SIZE; c_out_inner++)
+					for (int c_out_inner = 0; c_out_inner < BLOCK_SIZE; c_out_inner++)
 					{
 						output[n * H_out * W_out * C_out_curr + h_out * W_out * C_out_curr + w_out * C_out_curr + c_out_block * BLOCK_SIZE + c_out_inner] = accum_block[w_out * BLOCK_SIZE + c_out_inner];
 					}

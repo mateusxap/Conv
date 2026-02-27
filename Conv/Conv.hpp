@@ -43,8 +43,14 @@ class Tensor4D_NCHW : public Tensor4D
 {
 public:
 	Tensor4D_NCHW(size_t b = 0, size_t c = 0, size_t h = 0, size_t w = 0) : Tensor4D(b, c, h, w) {}
-	inline float &operator()(size_t n, size_t c, size_t h, size_t w) override;
-	inline const float &operator()(size_t n, size_t c, size_t h, size_t w) const override;
+	inline float &operator()(size_t n, size_t c, size_t h, size_t w) override
+	{
+		return data[n * (C_dim * H_dim * W_dim) + c * (H_dim * W_dim) + h * W_dim + w];
+	}
+	inline const float &operator()(size_t n, size_t c, size_t h, size_t w) const override
+	{
+		return data[n * (C_dim * H_dim * W_dim) + c * (H_dim * W_dim) + h * W_dim + w];
+	}
 	Tensor4D_NCHW pad_same_3x3() const;
 	Tensor4D_NCHW concatenateChannels(const Tensor4D &t2) const;
 };
@@ -53,8 +59,14 @@ class Tensor4D_NHWC : public Tensor4D
 {
 public:
 	Tensor4D_NHWC(size_t b = 0, size_t h = 0, size_t w = 0, size_t c = 0) : Tensor4D(b, c, h, w) {}
-	inline float &operator()(size_t n, size_t h, size_t w, size_t c) override;
-	inline const float &operator()(size_t n, size_t h, size_t w, size_t c) const override;
+	inline float &operator()(size_t n, size_t h, size_t w, size_t c) override
+	{
+		return data[n * H_dim * W_dim * C_dim + h * W_dim * C_dim + w * C_dim + c];
+	}
+	inline const float &operator()(size_t n, size_t h, size_t w, size_t c) const override
+	{
+		return data[n * H_dim * W_dim * C_dim + h * W_dim * C_dim + w * C_dim + c];
+	}
 	Tensor4D_NHWC pad_same_3x3() const;
 	Tensor4D_NHWC concatenateChannels(const Tensor4D &t2) const;
 };
@@ -89,21 +101,21 @@ Tensor4D_NHWC convolve_fused_1x1_3x3_no_if(const Tensor4D_NHWC &input,
 										   const Tensor4D_NHWC &kernel_1x1,
 										   const Tensor4D_NHWC &kernel_3x3);
 
-const size_t N = 1;
-const size_t C_in = 256;
-const size_t H_in = 28;
-const size_t W_in = 28;
-const size_t C_out = 128 + 96 + 32; // 384 + 192 + 48
+const int N = 1;
+const int C_in = 256;
+const int H_in = 28;
+const int W_in = 28;
+const int C_out = 128 + 96 + 32; // 384 + 192 + 48
 const int N_ITERATIONS = 1000;
 const int WARMUP_ITERATIONS = 10;
 
-const size_t KH = 1;
-const size_t KW = 1;
+const int KH = 1;
+const int KW = 1;
 
-const size_t H_out = H_in - KH + 1;
-const size_t W_out = W_in - KW + 1;
-const size_t BLOCK_SIZE = 8;
-const size_t C_out_block = C_out / BLOCK_SIZE;
-const size_t C_in_block = C_in / BLOCK_SIZE;
+const int H_out = H_in - KH + 1;
+const int W_out = W_in - KW + 1;
+const int BLOCK_SIZE = 8;
+const int C_out_block = C_out / BLOCK_SIZE;
+const int C_in_block = C_in / BLOCK_SIZE;
 
-std::vector<float> conv_optimized(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio, std::vector<float> &output, size_t C_out_curr = C_out);
+std::vector<float> conv_optimized(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio, std::vector<float> &output, int C_out_curr = C_out);
