@@ -2,68 +2,80 @@ import torch
 import torch.nn as nn
 import time
 import statistics
+import os
 
-# --- Устанавливаем количество потоков ---
-torch.set_num_threads(8)
+# Match C++ OMP defaults — use all available cores
+NUM_THREADS = os.cpu_count() or 6
+torch.set_num_threads(NUM_THREADS)
 
-# --- Параметры (должны совпадать с C++ кодом) ---
-N_BATCH = 1
-C_IN_DIM = 192
-H_DIM = 28
-W_DIM = 28
-C_OUT_DIM = 160
-KH = 3
-KW = 3
-N_ITERATIONS = 50
-WARMUP_ITERATIONS = 10
+# Sweep parameters (same as C++ benchmark_NCHWc_sweep)
+HW_VALS   = [7, 14, 28, 56]
+CIN_VALS  = [16, 32, 64, 128, 256]
+COUT_VALS = [16, 32, 64, 128, 256]
+N_BATCH   = 1
+KH, KW    = 1, 1
+N_ITERS   = 100
+WARMUP    = 5
 
-print("--- PyTorch Benchmark ---")
-print(f"Parameters: N={N_BATCH}, C_in={C_IN_DIM}, H={H_DIM}, W={W_DIM}, C_out={C_OUT_DIM}, Kernel={KH}x{KW}")
-
-# Убедимся, что используем CPU
 device = torch.device("cpu")
 
-# --- Создание данных ---
-# PyTorch использует формат NCHW по умолчанию
-input_tensor = torch.randn(N_BATCH, C_IN_DIM, H_DIM, W_DIM, device=device)
-# Веса для свертки в PyTorch имеют формат (out_channels, in_channels, kH, kW)
-kernel_tensor = torch.randn(C_OUT_DIM, C_IN_DIM, KH, KW, device=device)
+W = 100
+print()
+print("=" * W)
+print(f"  PyTorch sweep benchmark: 1x1 conv, N={N_BATCH}")
+print(f"  torch {torch.__version__}, threads={NUM_THREADS}")
+print(f"  Iterations={N_ITERS}  Warmup={WARMUP}")
+print(f"  Combined = 1 call with full Cout;  Sequential = 2 calls with Cout/2")
+print("=" * W)
+print(f"{'HW':<5}{'Cin':<5}{'Cout':<5} | {'pt_c (ms)':<12}{'pt_s (ms)':<12} | {'s/c':>6}")
+print("-" * W)
 
-# Создаем слой свертки
-# padding=0, stride=1 - это поведение "valid" свертки, как в вашем C++ коде
-conv_layer = nn.Conv2d(in_channels=C_IN_DIM, out_channels=C_OUT_DIM, kernel_size=(KH, KW), padding=0, stride=1)
+for hw in HW_VALS:
+    for ci in CIN_VALS:
+        for co in COUT_VALS:
+            co_half = co // 2
+            inp = torch.randn(N_BATCH, ci, hw, hw, device=device)
 
-# Загружаем наши случайные веса в слой (не обязательно для замера, но для корректности)
-conv_layer.weight.data = kernel_tensor
-conv_layer.to(device)
+            # Combined conv
+            conv_full = nn.Conv2d(ci, co, (KH, KW), padding=0, stride=1, bias=False, device=device)
+            # Sequential: two half-convs
+            conv_h1 = nn.Conv2d(ci, co_half, (KH, KW), padding=0, stride=1, bias=False, device=device)
+            conv_h2 = nn.Conv2d(ci, co_half, (KH, KW), padding=0, stride=1, bias=False, device=device)
 
-# --- Прогрев ---
-print("Warming up...")
-with torch.no_grad(): # Отключаем расчет градиентов для чистоты замера
-    for _ in range(WARMUP_ITERATIONS):
-        _ = conv_layer(input_tensor)
+            # Warmup
+            with torch.no_grad():
+                for _ in range(WARMUP):
+                    _ = conv_full(inp)
+                    _ = conv_h1(inp)
+                    _ = conv_h2(inp)
 
-# --- Замеры времени ---
-print(f"Starting benchmarks ({N_ITERATIONS} iterations)...")
-durations = []
-with torch.no_grad():
-    for _ in range(N_ITERATIONS):
-        # Важно: синхронизация нужна для CUDA, но для CPU она не вредит и является хорошей практикой
-        torch.cpu.synchronize()
-        start_time = time.perf_counter()
-        
-        output_tensor = conv_layer(input_tensor)
-        
-        torch.cpu.synchronize()
-        end_time = time.perf_counter()
-        
-        durations.append(end_time - start_time)
+            # Bench combined
+            durs_c = []
+            with torch.no_grad():
+                for _ in range(N_ITERS):
+                    torch.cpu.synchronize()
+                    t0 = time.perf_counter()
+                    _ = conv_full(inp)
+                    torch.cpu.synchronize()
+                    t1 = time.perf_counter()
+                    durs_c.append((t1 - t0) * 1000)
 
-median_duration_ms = statistics.median(durations) * 1000
-print(f"PyTorch Conv2d Median Time: {median_duration_ms:.4f} ms")
+            # Bench sequential
+            durs_s = []
+            with torch.no_grad():
+                for _ in range(N_ITERS):
+                    torch.cpu.synchronize()
+                    t0 = time.perf_counter()
+                    _ = conv_h1(inp)
+                    _ = conv_h2(inp)
+                    torch.cpu.synchronize()
+                    t1 = time.perf_counter()
+                    durs_s.append((t1 - t0) * 1000)
 
-# Проверка размеров выходного тензора
-H_out = H_DIM - KH + 1
-W_out = W_DIM - KW + 1
-print(f"Output tensor shape: {output_tensor.shape}")
-print(f"Expected shape: ({N_BATCH}, {C_OUT_DIM}, {H_out}, {W_out})")
+            med_c = statistics.median(durs_c)
+            med_s = statistics.median(durs_s)
+            ratio = med_s / med_c if med_c > 0 else 0
+
+            print(f"{hw:<5}{ci:<5}{co:<5} | {med_c:<12.4f}{med_s:<12.4f} | {ratio:6.2f}")
+
+print("=" * W)
