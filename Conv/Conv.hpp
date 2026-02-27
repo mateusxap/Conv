@@ -120,4 +120,25 @@ const int C_in_block = C_in / BLOCK_SIZE;
 
 std::vector<float> conv_optimized_w_c(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio, std::vector<float> &output, int C_out_curr = C_out);
 std::vector<float> conv_optimized_c_w(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio, std::vector<float> &output, int C_out_curr = C_out);
-std::vector<float> conv_optimized_v2(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio, std::vector<float> &output, int C_out_curr = C_out);
+std::vector<float> conv_optimized_v3(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio, std::vector<float> &output, int C_out_curr = C_out);
+
+// ---- Parameterized convolution support ----
+struct ConvParams {
+    int N   = 1;
+    int C_in;
+    int H_in;
+    int W_in;
+    int KH  = 1;
+    int KW  = 1;
+
+    int H_out()      const { return H_in - KH + 1; }
+    int W_out()      const { return W_in - KW + 1; }
+    int C_in_block() const { return C_in / BLOCK_SIZE; }
+};
+
+void conv_param_w_c(const ConvParams &p, const float *input, const float *kernel,
+                    float *output, int C_out_curr);
+void conv_param_c_w(const ConvParams &p, const float *input, const float *kernel,
+                    float *output, int C_out_curr);
+void conv_param_v3 (const ConvParams &p, const float *input, const float *kernel,
+                    float *output, int C_out_curr);

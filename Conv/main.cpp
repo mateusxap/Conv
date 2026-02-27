@@ -1,4 +1,5 @@
 ﻿#include "Conv.hpp"
+#include <iomanip>
 #include "omp.h"
 #include <algorithm>
 #include <vector>
@@ -299,135 +300,244 @@ int benchmark_NCHWc_convs_googlenet()
 		val = dist(rng);
 
 	// Outputs
-	std::vector<float> output_combined(N * H_out * W_out * C_out_combined);
-	std::vector<float> output1(N * H_out * W_out * C_out_1);
-	std::vector<float> output2(N * H_out * W_out * C_out_2);
-	std::vector<float> output3(N * H_out * W_out * C_out_3);
+	std::vector<float> output_combined(N * C_out_combined / BLOCK_SIZE * H_out * W_out * BLOCK_SIZE, 0.0f);
+	std::vector<float> output1(N * C_out_1 / BLOCK_SIZE * H_out * W_out * BLOCK_SIZE, 0.0f);
+	std::vector<float> output2(N * C_out_2 / BLOCK_SIZE * H_out * W_out * BLOCK_SIZE, 0.0f);
+	std::vector<float> output3(N * C_out_3 / BLOCK_SIZE * H_out * W_out * BLOCK_SIZE, 0.0f);
 
-	// --- Benchmark Combined ---
-	std::vector<double> durations_combined;
-	durations_combined.reserve(N_ITERATIONS);
+	// -------------------------------------------------------
+	// Correctness check: compare c_w and v3 against w_c
+	// -------------------------------------------------------
+	std::cout << "Running correctness checks..." << std::endl;
 
-	std::cout << "Warming up Combined..." << std::endl;
-	for (int i = 0; i < WARMUP_ITERATIONS; ++i)
-	{
-		conv_optimized_w_c(input_NCHWc, kernel_combined, output_combined, C_out_combined);
-	}
+	// Reference: w_c
+	std::vector<float> ref_combined(output_combined.size(), 0.0f);
+	std::vector<float> ref1(output1.size(), 0.0f);
+	std::vector<float> ref2(output2.size(), 0.0f);
+	std::vector<float> ref3(output3.size(), 0.0f);
+	conv_optimized_w_c(input_NCHWc, kernel_combined, ref_combined, C_out_combined);
+	conv_optimized_w_c(input_NCHWc, kernel1, ref1, C_out_1);
+	conv_optimized_w_c(input_NCHWc, kernel2, ref2, C_out_2);
+	conv_optimized_w_c(input_NCHWc, kernel3, ref3, C_out_3);
 
-	std::cout << "Benchmarking Combined (" << N_ITERATIONS << " iterations)..." << std::endl;
-	for (int i = 0; i < N_ITERATIONS; ++i)
-	{
-		auto start = std::chrono::high_resolution_clock::now();
-		conv_optimized_w_c(input_NCHWc, kernel_combined, output_combined, C_out_combined);
-		auto end = std::chrono::high_resolution_clock::now();
-		durations_combined.push_back(std::chrono::duration<double, std::milli>(end - start).count());
-	}
-
-	// --- Benchmark Sequential ---
-	std::vector<double> durations_sequential;
-	durations_sequential.reserve(N_ITERATIONS);
-
-	std::cout << "Warming up Sequential..." << std::endl;
-	for (int i = 0; i < WARMUP_ITERATIONS; ++i)
-	{
-		conv_optimized_w_c(input_NCHWc, kernel1, output1, C_out_1);
-		conv_optimized_w_c(input_NCHWc, kernel2, output2, C_out_2);
-		conv_optimized_w_c(input_NCHWc, kernel3, output3, C_out_3);
-	}
-
-	std::cout << "Benchmarking Sequential (" << N_ITERATIONS << " iterations)..." << std::endl;
-	for (int i = 0; i < N_ITERATIONS; ++i)
-	{
-		auto start = std::chrono::high_resolution_clock::now();
-		conv_optimized_w_c(input_NCHWc, kernel1, output1, C_out_1);
-		conv_optimized_w_c(input_NCHWc, kernel2, output2, C_out_2);
-		conv_optimized_w_c(input_NCHWc, kernel3, output3, C_out_3);
-		auto end = std::chrono::high_resolution_clock::now();
-		durations_sequential.push_back(std::chrono::duration<double, std::milli>(end - start).count());
-	}
-
-
-	// --- Benchmark Combined c_w ---
-	std::vector<double> durations_combined_cw;
-	durations_combined_cw.reserve(N_ITERATIONS);
-
-	std::cout << "Warming up Combined c_w..." << std::endl;
-	for (int i = 0; i < WARMUP_ITERATIONS; ++i)
-	{
-		conv_optimized_c_w(input_NCHWc, kernel_combined, output_combined, C_out_combined);
-	}
-
-	std::cout << "Benchmarking Combined c_w (" << N_ITERATIONS << " iterations)..." << std::endl;
-	for (int i = 0; i < N_ITERATIONS; ++i)
-	{
-		auto start = std::chrono::high_resolution_clock::now();
-		conv_optimized_c_w(input_NCHWc, kernel_combined, output_combined, C_out_combined);
-		auto end = std::chrono::high_resolution_clock::now();
-		durations_combined_cw.push_back(std::chrono::duration<double, std::milli>(end - start).count());
-	}
-
-	// --- Benchmark Sequential c_w ---
-	std::vector<double> durations_sequential_cw;
-	durations_sequential_cw.reserve(N_ITERATIONS);
-
-	std::cout << "Warming up Sequential c_w..." << std::endl;
-	for (int i = 0; i < WARMUP_ITERATIONS; ++i)
-	{
-		conv_optimized_c_w(input_NCHWc, kernel1, output1, C_out_1);
-		conv_optimized_c_w(input_NCHWc, kernel2, output2, C_out_2);
-		conv_optimized_c_w(input_NCHWc, kernel3, output3, C_out_3);
-	}
-
-	std::cout << "Benchmarking Sequential c_w (" << N_ITERATIONS << " iterations)..." << std::endl;
-	for (int i = 0; i < N_ITERATIONS; ++i)
-	{
-		auto start = std::chrono::high_resolution_clock::now();
-		conv_optimized_c_w(input_NCHWc, kernel1, output1, C_out_1);
-		conv_optimized_c_w(input_NCHWc, kernel2, output2, C_out_2);
-		conv_optimized_c_w(input_NCHWc, kernel3, output3, C_out_3);
-		auto end = std::chrono::high_resolution_clock::now();
-		durations_sequential_cw.push_back(std::chrono::duration<double, std::milli>(end - start).count());
-	}
-
-	// Results
-	auto get_median = [](std::vector<double> &v)
-	{
-		std::sort(v.begin(), v.end());
-		if (v.size() % 2 == 0)
-			return (v[v.size() / 2 - 1] + v[v.size() / 2]) / 2.0;
-		return v[v.size() / 2];
+	auto check_correctness = [](const std::string &name,
+	                            const std::vector<float> &ref,
+	                            const std::vector<float> &out) {
+		const float tol = 1e-3f;
+		for (size_t i = 0; i < ref.size(); ++i) {
+			if (std::abs(ref[i] - out[i]) > tol) {
+				std::cout << "[FAIL] " << name << " mismatch at index " << i
+				          << ": ref=" << ref[i] << " got=" << out[i] << std::endl;
+				return;
+			}
+		}
+		std::cout << "[OK]   " << name << std::endl;
 	};
 
-	double median_combined = get_median(durations_combined);
-	double median_sequential = get_median(durations_sequential);
-	double median_combined_cw = get_median(durations_combined_cw);
-	double median_sequential_cw = get_median(durations_sequential_cw);
+	// Check c_w combined
+	{
+		std::vector<float> out(ref_combined.size(), 0.0f);
+		conv_optimized_c_w(input_NCHWc, kernel_combined, out, C_out_combined);
+		check_correctness("c_w  combined", ref_combined, out);
+	}
+	// Check c_w sequential
+	{
+		std::vector<float> o1(ref1.size(), 0.0f), o2(ref2.size(), 0.0f), o3(ref3.size(), 0.0f);
+		conv_optimized_c_w(input_NCHWc, kernel1, o1, C_out_1);
+		conv_optimized_c_w(input_NCHWc, kernel2, o2, C_out_2);
+		conv_optimized_c_w(input_NCHWc, kernel3, o3, C_out_3);
+		check_correctness("c_w  sequential kernel1", ref1, o1);
+		check_correctness("c_w  sequential kernel2", ref2, o2);
+		check_correctness("c_w  sequential kernel3", ref3, o3);
+	}
+	// Check v3 combined
+	{
+		std::vector<float> out(ref_combined.size(), 0.0f);
+		conv_optimized_v3(input_NCHWc, kernel_combined, out, C_out_combined);
+		check_correctness("v3   combined", ref_combined, out);
+	}
+	// Check v3 sequential
+	{
+		std::vector<float> o1(ref1.size(), 0.0f), o2(ref2.size(), 0.0f), o3(ref3.size(), 0.0f);
+		conv_optimized_v3(input_NCHWc, kernel1, o1, C_out_1);
+		conv_optimized_v3(input_NCHWc, kernel2, o2, C_out_2);
+		conv_optimized_v3(input_NCHWc, kernel3, o3, C_out_3);
+		check_correctness("v3   sequential kernel1", ref1, o1);
+		check_correctness("v3   sequential kernel2", ref2, o2);
+		check_correctness("v3   sequential kernel3", ref3, o3);
+	}
+	std::cout << std::endl;
 
+	// -------------------------------------------------------
+	// Benchmarking
+	// -------------------------------------------------------
+	auto benchmark = [&](const std::string &label, auto fn) -> double {
+		std::vector<double> durations;
+		durations.reserve(N_ITERATIONS);
+		std::cout << "Warming up " << label << "..." << std::endl;
+		for (int i = 0; i < WARMUP_ITERATIONS; ++i)
+			fn();
+		std::cout << "Benchmarking " << label << " (" << N_ITERATIONS << " iterations)..." << std::endl;
+		for (int i = 0; i < N_ITERATIONS; ++i) {
+			auto start = std::chrono::high_resolution_clock::now();
+			fn();
+			auto end = std::chrono::high_resolution_clock::now();
+			durations.push_back(std::chrono::duration<double, std::milli>(end - start).count());
+		}
+		std::sort(durations.begin(), durations.end());
+		if (durations.size() % 2 == 0)
+			return (durations[durations.size() / 2 - 1] + durations[durations.size() / 2]) / 2.0;
+		return durations[durations.size() / 2];
+	};
+
+	double med_wc_comb  = benchmark("w_c  combined",  [&]{ conv_optimized_w_c(input_NCHWc, kernel_combined, output_combined, C_out_combined); });
+	double med_wc_seq   = benchmark("w_c  sequential", [&]{ conv_optimized_w_c(input_NCHWc, kernel1, output1, C_out_1); conv_optimized_w_c(input_NCHWc, kernel2, output2, C_out_2); conv_optimized_w_c(input_NCHWc, kernel3, output3, C_out_3); });
+
+	double med_cw_comb  = benchmark("c_w  combined",  [&]{ conv_optimized_c_w(input_NCHWc, kernel_combined, output_combined, C_out_combined); });
+	double med_cw_seq   = benchmark("c_w  sequential", [&]{ conv_optimized_c_w(input_NCHWc, kernel1, output1, C_out_1); conv_optimized_c_w(input_NCHWc, kernel2, output2, C_out_2); conv_optimized_c_w(input_NCHWc, kernel3, output3, C_out_3); });
+
+	double med_v3_comb  = benchmark("v3   combined",  [&]{ conv_optimized_v3(input_NCHWc, kernel_combined, output_combined, C_out_combined); });
+	double med_v3_seq   = benchmark("v3   sequential", [&]{ conv_optimized_v3(input_NCHWc, kernel1, output1, C_out_1); conv_optimized_v3(input_NCHWc, kernel2, output2, C_out_2); conv_optimized_v3(input_NCHWc, kernel3, output3, C_out_3); });
+
+	// -------------------------------------------------------
+	// Results
+	// -------------------------------------------------------
+	std::cout << std::endl;
 	std::cout << "--------------------------------------------------" << std::endl;
-	std::cout << "=== w_c (old) ===" << std::endl;
-	std::cout << "Combined w_c Median Time:    " << median_combined << " ms" << std::endl;
-	std::cout << "Sequential w_c Median Time:  " << median_sequential << " ms" << std::endl;
-	std::cout << "Speedup (Seq_w_c / Comb_w_c): " << median_sequential / median_combined << "x" << std::endl;
+	std::cout << std::left << std::setw(35) << "Variant"
+	          << std::setw(16) << "Combined (ms)"
+	          << std::setw(16) << "Sequential (ms)"
+	          << "Seq/Comb" << std::endl;
+	std::cout << std::string(75, '-') << std::endl;
+
+	auto row = [](const std::string &name, double comb, double seq) {
+		std::cout << std::left << std::setw(35) << name
+		          << std::setw(16) << comb
+		          << std::setw(16) << seq
+		          << (seq / comb) << "x" << std::endl;
+	};
+	row("w_c  (baseline)",      med_wc_comb,  med_wc_seq);
+	row("c_w  (loop swapped)",  med_cw_comb,  med_cw_seq);
+	row("v3   (AVX2 + aligned)",med_v3_comb,  med_v3_seq);
+
+	std::cout << std::string(75, '-') << std::endl;
 	std::cout << std::endl;
-	std::cout << "=== c_w (new) ===" << std::endl;
-	std::cout << "Combined c_w Median Time:    " << median_combined_cw << " ms" << std::endl;
-	std::cout << "Sequential c_w Median Time:  " << median_sequential_cw << " ms" << std::endl;
-	std::cout << "Speedup (Seq_c_w / Comb_c_w): " << median_sequential_cw / median_combined_cw << "x" << std::endl;
-	std::cout << std::endl;
-	std::cout << "=== c_w vs w_c ===" << std::endl;
-	std::cout << "Combined c_w / Combined w_c:     " << median_combined_cw / median_combined << "x" << std::endl;
-	std::cout << "Sequential c_w / Sequential w_c: " << median_sequential_cw / median_sequential << "x" << std::endl;
+	std::cout << "Speedup v3 vs w_c (combined):   " << med_wc_comb / med_v3_comb << "x" << std::endl;
+	std::cout << "Speedup v3 vs w_c (sequential):  " << med_wc_seq  / med_v3_seq  << "x" << std::endl;
 	std::cout << "--------------------------------------------------" << std::endl;
 
 	return 0;
 }
 
+
+void benchmark_NCHWc_sweep()
+{
+    const int SWEEP_ITERS   = 100;
+    const int SWEEP_WARMUP  = 5;
+    const int HW_vals[]   = {7, 14, 28, 56};
+    const int Cin_vals[]  = {16, 32, 64, 128, 256};
+    const int Cout_vals[] = {16, 32, 64, 128, 256};
+
+    std::mt19937 rng(42);
+    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+
+    // Header
+    std::cout << std::endl;
+    std::cout << std::string(100, '=') << std::endl;
+    std::cout << "  Sweep benchmark: 1x1 conv, N=1, BLOCK_SIZE=8" << std::endl;
+    std::cout << "  Iterations=" << SWEEP_ITERS << "  Warmup=" << SWEEP_WARMUP << std::endl;
+    std::cout << std::string(100, '=') << std::endl;
+    std::cout << std::left
+              << std::setw(6)  << "HW"
+              << std::setw(6)  << "Cin"
+              << std::setw(6)  << "Cout"
+              << std::setw(12) << "w_c (ms)"
+              << std::setw(12) << "c_w (ms)"
+              << std::setw(12) << "v3  (ms)"
+              << std::setw(12) << "v3/w_c"
+              << "check" << std::endl;
+    std::cout << std::string(100, '-') << std::endl;
+
+    for (int hw : HW_vals) {
+        for (int ci : Cin_vals) {
+            for (int co : Cout_vals) {
+                ConvParams p;
+                p.N    = 1;
+                p.C_in = ci;
+                p.H_in = hw;
+                p.W_in = hw;
+                p.KH   = 1;
+                p.KW   = 1;
+
+                int h_o = p.H_out();
+                int w_o = p.W_out();
+                size_t in_sz  = (size_t)p.N * ci * hw * hw;
+                size_t k_sz   = (size_t)co * ci * p.KH * p.KW;
+                size_t out_sz = (size_t)p.N * h_o * w_o * co;
+
+                std::vector<float> input(in_sz);
+                for (float &v : input) v = dist(rng);
+                std::vector<float> kernel_data(k_sz);
+                for (float &v : kernel_data) v = dist(rng);
+
+                std::vector<float> out_wc(out_sz, 0.0f);
+                std::vector<float> out_cw(out_sz, 0.0f);
+                std::vector<float> out_v3(out_sz, 0.0f);
+
+                // Correctness check
+                conv_param_w_c(p, input.data(), kernel_data.data(), out_wc.data(), co);
+                conv_param_v3 (p, input.data(), kernel_data.data(), out_v3.data(), co);
+                bool ok = true;
+                for (size_t i = 0; i < out_sz; i++) {
+                    if (std::abs(out_wc[i] - out_v3[i]) > 1e-3f) { ok = false; break; }
+                }
+
+                // Warmup
+                for (int it = 0; it < SWEEP_WARMUP; it++) {
+                    conv_param_w_c(p, input.data(), kernel_data.data(), out_wc.data(), co);
+                    conv_param_c_w(p, input.data(), kernel_data.data(), out_cw.data(), co);
+                    conv_param_v3 (p, input.data(), kernel_data.data(), out_v3.data(), co);
+                }
+
+                // Benchmark
+                auto bench = [&](auto fn) -> double {
+                    std::vector<double> durs;
+                    durs.reserve(SWEEP_ITERS);
+                    for (int it = 0; it < SWEEP_ITERS; it++) {
+                        auto t0 = std::chrono::high_resolution_clock::now();
+                        fn();
+                        auto t1 = std::chrono::high_resolution_clock::now();
+                        durs.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
+                    }
+                    std::sort(durs.begin(), durs.end());
+                    return durs[durs.size() / 2];
+                };
+
+                double med_wc = bench([&]{ conv_param_w_c(p, input.data(), kernel_data.data(), out_wc.data(), co); });
+                double med_cw = bench([&]{ conv_param_c_w(p, input.data(), kernel_data.data(), out_cw.data(), co); });
+                double med_v3 = bench([&]{ conv_param_v3 (p, input.data(), kernel_data.data(), out_v3.data(), co); });
+
+                std::cout << std::left
+                          << std::setw(6) << hw
+                          << std::setw(6) << ci
+                          << std::setw(6) << co
+                          << std::setw(12) << med_wc
+                          << std::setw(12) << med_cw
+                          << std::setw(12) << med_v3
+                          << std::setw(12) << (med_wc / med_v3)
+                          << (ok ? "OK" : "FAIL") << std::endl;
+            }
+        }
+    }
+    std::cout << std::string(100, '=') << std::endl;
+}
 int main()
 {
 	// omp_set_num_threads(8);
 	//   Параметры
 	//  benchmark_NCHW_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
 	//  benchmark_NHWC_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
-	benchmark_NCHWc_convs_googlenet();
+	// benchmark_NCHWc_convs_googlenet();
+	benchmark_NCHWc_sweep();
 	return 0;
 }
