@@ -234,7 +234,7 @@ int benchmark_NCHWc_conv()
 	std::cout << "Warming up..." << std::endl;
 	for (int i = 0; i < WARMUP_ITERATIONS; ++i)
 	{
-		conv_optimized(input_NCHWc, kernel_OIHWio, output, C_out);
+		conv_optimized_w_c(input_NCHWc, kernel_OIHWio, output, C_out);
 	}
 
 	// Замеры времени
@@ -242,7 +242,7 @@ int benchmark_NCHWc_conv()
 	for (int i = 0; i < N_ITERATIONS; ++i)
 	{
 		auto start = std::chrono::high_resolution_clock::now();
-		conv_optimized(input_NCHWc, kernel_OIHWio, output, C_out);
+		conv_optimized_w_c(input_NCHWc, kernel_OIHWio, output, C_out);
 		auto end = std::chrono::high_resolution_clock::now();
 		durations.push_back(std::chrono::duration<double, std::milli>(end - start).count());
 	}
@@ -311,14 +311,14 @@ int benchmark_NCHWc_convs_googlenet()
 	std::cout << "Warming up Combined..." << std::endl;
 	for (int i = 0; i < WARMUP_ITERATIONS; ++i)
 	{
-		conv_optimized(input_NCHWc, kernel_combined, output_combined, C_out_combined);
+		conv_optimized_w_c(input_NCHWc, kernel_combined, output_combined, C_out_combined);
 	}
 
 	std::cout << "Benchmarking Combined (" << N_ITERATIONS << " iterations)..." << std::endl;
 	for (int i = 0; i < N_ITERATIONS; ++i)
 	{
 		auto start = std::chrono::high_resolution_clock::now();
-		conv_optimized(input_NCHWc, kernel_combined, output_combined, C_out_combined);
+		conv_optimized_w_c(input_NCHWc, kernel_combined, output_combined, C_out_combined);
 		auto end = std::chrono::high_resolution_clock::now();
 		durations_combined.push_back(std::chrono::duration<double, std::milli>(end - start).count());
 	}
@@ -330,20 +330,63 @@ int benchmark_NCHWc_convs_googlenet()
 	std::cout << "Warming up Sequential..." << std::endl;
 	for (int i = 0; i < WARMUP_ITERATIONS; ++i)
 	{
-		conv_optimized(input_NCHWc, kernel1, output1, C_out_1);
-		conv_optimized(input_NCHWc, kernel2, output2, C_out_2);
-		conv_optimized(input_NCHWc, kernel3, output3, C_out_3);
+		conv_optimized_w_c(input_NCHWc, kernel1, output1, C_out_1);
+		conv_optimized_w_c(input_NCHWc, kernel2, output2, C_out_2);
+		conv_optimized_w_c(input_NCHWc, kernel3, output3, C_out_3);
 	}
 
 	std::cout << "Benchmarking Sequential (" << N_ITERATIONS << " iterations)..." << std::endl;
 	for (int i = 0; i < N_ITERATIONS; ++i)
 	{
 		auto start = std::chrono::high_resolution_clock::now();
-		conv_optimized(input_NCHWc, kernel1, output1, C_out_1);
-		conv_optimized(input_NCHWc, kernel2, output2, C_out_2);
-		conv_optimized(input_NCHWc, kernel3, output3, C_out_3);
+		conv_optimized_w_c(input_NCHWc, kernel1, output1, C_out_1);
+		conv_optimized_w_c(input_NCHWc, kernel2, output2, C_out_2);
+		conv_optimized_w_c(input_NCHWc, kernel3, output3, C_out_3);
 		auto end = std::chrono::high_resolution_clock::now();
 		durations_sequential.push_back(std::chrono::duration<double, std::milli>(end - start).count());
+	}
+
+
+	// --- Benchmark Combined c_w ---
+	std::vector<double> durations_combined_cw;
+	durations_combined_cw.reserve(N_ITERATIONS);
+
+	std::cout << "Warming up Combined c_w..." << std::endl;
+	for (int i = 0; i < WARMUP_ITERATIONS; ++i)
+	{
+		conv_optimized_c_w(input_NCHWc, kernel_combined, output_combined, C_out_combined);
+	}
+
+	std::cout << "Benchmarking Combined c_w (" << N_ITERATIONS << " iterations)..." << std::endl;
+	for (int i = 0; i < N_ITERATIONS; ++i)
+	{
+		auto start = std::chrono::high_resolution_clock::now();
+		conv_optimized_c_w(input_NCHWc, kernel_combined, output_combined, C_out_combined);
+		auto end = std::chrono::high_resolution_clock::now();
+		durations_combined_cw.push_back(std::chrono::duration<double, std::milli>(end - start).count());
+	}
+
+	// --- Benchmark Sequential c_w ---
+	std::vector<double> durations_sequential_cw;
+	durations_sequential_cw.reserve(N_ITERATIONS);
+
+	std::cout << "Warming up Sequential c_w..." << std::endl;
+	for (int i = 0; i < WARMUP_ITERATIONS; ++i)
+	{
+		conv_optimized_c_w(input_NCHWc, kernel1, output1, C_out_1);
+		conv_optimized_c_w(input_NCHWc, kernel2, output2, C_out_2);
+		conv_optimized_c_w(input_NCHWc, kernel3, output3, C_out_3);
+	}
+
+	std::cout << "Benchmarking Sequential c_w (" << N_ITERATIONS << " iterations)..." << std::endl;
+	for (int i = 0; i < N_ITERATIONS; ++i)
+	{
+		auto start = std::chrono::high_resolution_clock::now();
+		conv_optimized_c_w(input_NCHWc, kernel1, output1, C_out_1);
+		conv_optimized_c_w(input_NCHWc, kernel2, output2, C_out_2);
+		conv_optimized_c_w(input_NCHWc, kernel3, output3, C_out_3);
+		auto end = std::chrono::high_resolution_clock::now();
+		durations_sequential_cw.push_back(std::chrono::duration<double, std::milli>(end - start).count());
 	}
 
 	// Results
@@ -357,11 +400,23 @@ int benchmark_NCHWc_convs_googlenet()
 
 	double median_combined = get_median(durations_combined);
 	double median_sequential = get_median(durations_sequential);
+	double median_combined_cw = get_median(durations_combined_cw);
+	double median_sequential_cw = get_median(durations_sequential_cw);
 
 	std::cout << "--------------------------------------------------" << std::endl;
-	std::cout << "Combined Conv " << C_out << " Median Time:   " << median_combined << " ms" << std::endl;
-	std::cout << "Sequential Convs Median Time: " << median_sequential << " ms" << std::endl;
-	std::cout << "Speedup (Sequential / Combined): " << median_sequential / median_combined << "x" << std::endl;
+	std::cout << "=== w_c (old) ===" << std::endl;
+	std::cout << "Combined w_c Median Time:    " << median_combined << " ms" << std::endl;
+	std::cout << "Sequential w_c Median Time:  " << median_sequential << " ms" << std::endl;
+	std::cout << "Speedup (Seq_w_c / Comb_w_c): " << median_sequential / median_combined << "x" << std::endl;
+	std::cout << std::endl;
+	std::cout << "=== c_w (new) ===" << std::endl;
+	std::cout << "Combined c_w Median Time:    " << median_combined_cw << " ms" << std::endl;
+	std::cout << "Sequential c_w Median Time:  " << median_sequential_cw << " ms" << std::endl;
+	std::cout << "Speedup (Seq_c_w / Comb_c_w): " << median_sequential_cw / median_combined_cw << "x" << std::endl;
+	std::cout << std::endl;
+	std::cout << "=== c_w vs w_c ===" << std::endl;
+	std::cout << "Combined c_w / Combined w_c:     " << median_combined_cw / median_combined << "x" << std::endl;
+	std::cout << "Sequential c_w / Sequential w_c: " << median_sequential_cw / median_sequential << "x" << std::endl;
 	std::cout << "--------------------------------------------------" << std::endl;
 
 	return 0;

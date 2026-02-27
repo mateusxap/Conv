@@ -118,4 +118,6 @@ const int BLOCK_SIZE = 8;
 const int C_out_block = C_out / BLOCK_SIZE;
 const int C_in_block = C_in / BLOCK_SIZE;
 
-std::vector<float> conv_optimized(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio, std::vector<float> &output, int C_out_curr = C_out);
+std::vector<float> conv_optimized_w_c(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio, std::vector<float> &output, int C_out_curr = C_out);
+std::vector<float> conv_optimized_c_w(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio, std::vector<float> &output, int C_out_curr = C_out);
+std::vector<float> conv_optimized_v2(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio, std::vector<float> &output, int C_out_curr = C_out);
