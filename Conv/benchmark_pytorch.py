@@ -5,8 +5,10 @@ import statistics
 import os
 
 # Match C++ OMP defaults — use all available cores
-NUM_THREADS = os.cpu_count() or 6
-torch.set_num_threads(NUM_THREADS)
+# NUM_THREADS = os.cpu_count() or 6
+# torch.set_num_threads(NUM_THREADS)
+torch.set_num_threads(8)
+
 
 # Sweep parameters (same as C++ benchmark_NCHWc_sweep)
 HW_VALS   = [7, 14, 28, 56]
@@ -23,7 +25,7 @@ W = 100
 print()
 print("=" * W)
 print(f"  PyTorch sweep benchmark: 1x1 conv, N={N_BATCH}")
-print(f"  torch {torch.__version__}, threads={NUM_THREADS}")
+# print(f"  torch {torch.__version__}, threads={NUM_THREADS}")
 print(f"  Iterations={N_ITERS}  Warmup={WARMUP}")
 print(f"  Combined = 1 call with full Cout;  Sequential = 2 calls with Cout/2")
 print("=" * W)
