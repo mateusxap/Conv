@@ -442,21 +442,33 @@ void benchmark_NCHWc_sweep()
     std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
 
     // Header
+    const int W = 130;
     std::cout << std::endl;
-    std::cout << std::string(100, '=') << std::endl;
+    std::cout << std::string(W, '=') << std::endl;
     std::cout << "  Sweep benchmark: 1x1 conv, N=1, BLOCK_SIZE=8" << std::endl;
+    std::cout << "  Combined = 1 call with full Cout;  Sequential = 2 calls with Cout/2 each" << std::endl;
     std::cout << "  Iterations=" << SWEEP_ITERS << "  Warmup=" << SWEEP_WARMUP << std::endl;
-    std::cout << std::string(100, '=') << std::endl;
+    std::cout << std::string(W, '=') << std::endl;
     std::cout << std::left
-              << std::setw(6)  << "HW"
-              << std::setw(6)  << "Cin"
-              << std::setw(6)  << "Cout"
-              << std::setw(12) << "w_c (ms)"
-              << std::setw(12) << "c_w (ms)"
-              << std::setw(12) << "v3  (ms)"
-              << std::setw(12) << "v3/w_c"
-              << "check" << std::endl;
-    std::cout << std::string(100, '-') << std::endl;
+              << std::setw(5)  << "HW"
+              << std::setw(5)  << "Cin"
+              << std::setw(5)  << "Cout"
+              << " | "
+              << std::setw(10) << "w_c_c"
+              << std::setw(10) << "w_c_s"
+              << " | "
+              << std::setw(10) << "c_w_c"
+              << std::setw(10) << "c_w_s"
+              << " | "
+              << std::setw(10) << "v3_c"
+              << std::setw(10) << "v3_s"
+              << " | "
+              << std::setw(8)  << "v3/w_c"
+              << std::setw(8)  << "v3s/wcs"
+              << std::setw(8)  << "s/c v3"
+              << " | "
+              << "chk" << std::endl;
+    std::cout << std::string(W, '-') << std::endl;
 
     for (int hw : HW_vals) {
         for (int ci : Cin_vals) {
@@ -472,21 +484,33 @@ void benchmark_NCHWc_sweep()
                 int h_o = p.H_out();
                 int w_o = p.W_out();
                 size_t in_sz  = (size_t)p.N * ci * hw * hw;
-                size_t k_sz   = (size_t)co * ci * p.KH * p.KW;
                 size_t out_sz = (size_t)p.N * h_o * w_o * co;
+                int co_half   = co / 2;
+                size_t k_sz_full = (size_t)co * ci;
+                size_t k_sz_half = (size_t)co_half * ci;
+                size_t out_sz_half = (size_t)p.N * h_o * w_o * co_half;
 
+                // Allocate
                 std::vector<float> input(in_sz);
                 for (float &v : input) v = dist(rng);
-                std::vector<float> kernel_data(k_sz);
-                for (float &v : kernel_data) v = dist(rng);
 
+                std::vector<float> kernel_full(k_sz_full);
+                for (float &v : kernel_full) v = dist(rng);
+                std::vector<float> kernel_h1(k_sz_half);
+                for (float &v : kernel_h1) v = dist(rng);
+                std::vector<float> kernel_h2(k_sz_half);
+                for (float &v : kernel_h2) v = dist(rng);
+
+                // Output buffers
                 std::vector<float> out_wc(out_sz, 0.0f);
                 std::vector<float> out_cw(out_sz, 0.0f);
                 std::vector<float> out_v3(out_sz, 0.0f);
+                std::vector<float> out_h1(out_sz_half, 0.0f);
+                std::vector<float> out_h2(out_sz_half, 0.0f);
 
-                // Correctness check
-                conv_param_w_c(p, input.data(), kernel_data.data(), out_wc.data(), co);
-                conv_param_v3 (p, input.data(), kernel_data.data(), out_v3.data(), co);
+                // Correctness check (combined)
+                conv_param_w_c(p, input.data(), kernel_full.data(), out_wc.data(), co);
+                conv_param_v3 (p, input.data(), kernel_full.data(), out_v3.data(), co);
                 bool ok = true;
                 for (size_t i = 0; i < out_sz; i++) {
                     if (std::abs(out_wc[i] - out_v3[i]) > 1e-3f) { ok = false; break; }
@@ -494,12 +518,18 @@ void benchmark_NCHWc_sweep()
 
                 // Warmup
                 for (int it = 0; it < SWEEP_WARMUP; it++) {
-                    conv_param_w_c(p, input.data(), kernel_data.data(), out_wc.data(), co);
-                    conv_param_c_w(p, input.data(), kernel_data.data(), out_cw.data(), co);
-                    conv_param_v3 (p, input.data(), kernel_data.data(), out_v3.data(), co);
+                    conv_param_w_c(p, input.data(), kernel_full.data(), out_wc.data(), co);
+                    conv_param_c_w(p, input.data(), kernel_full.data(), out_cw.data(), co);
+                    conv_param_v3 (p, input.data(), kernel_full.data(), out_v3.data(), co);
+                    conv_param_w_c(p, input.data(), kernel_h1.data(), out_h1.data(), co_half);
+                    conv_param_w_c(p, input.data(), kernel_h2.data(), out_h2.data(), co_half);
+                    conv_param_c_w(p, input.data(), kernel_h1.data(), out_h1.data(), co_half);
+                    conv_param_c_w(p, input.data(), kernel_h2.data(), out_h2.data(), co_half);
+                    conv_param_v3 (p, input.data(), kernel_h1.data(), out_h1.data(), co_half);
+                    conv_param_v3 (p, input.data(), kernel_h2.data(), out_h2.data(), co_half);
                 }
 
-                // Benchmark
+                // Benchmark helper
                 auto bench = [&](auto fn) -> double {
                     std::vector<double> durs;
                     durs.reserve(SWEEP_ITERS);
@@ -513,24 +543,54 @@ void benchmark_NCHWc_sweep()
                     return durs[durs.size() / 2];
                 };
 
-                double med_wc = bench([&]{ conv_param_w_c(p, input.data(), kernel_data.data(), out_wc.data(), co); });
-                double med_cw = bench([&]{ conv_param_c_w(p, input.data(), kernel_data.data(), out_cw.data(), co); });
-                double med_v3 = bench([&]{ conv_param_v3 (p, input.data(), kernel_data.data(), out_v3.data(), co); });
+                // Combined (1 call with full Cout)
+                double wc_c = bench([&]{ conv_param_w_c(p, input.data(), kernel_full.data(), out_wc.data(), co); });
+                double cw_c = bench([&]{ conv_param_c_w(p, input.data(), kernel_full.data(), out_cw.data(), co); });
+                double v3_c = bench([&]{ conv_param_v3 (p, input.data(), kernel_full.data(), out_v3.data(), co); });
 
-                std::cout << std::left
-                          << std::setw(6) << hw
-                          << std::setw(6) << ci
-                          << std::setw(6) << co
-                          << std::setw(12) << med_wc
-                          << std::setw(12) << med_cw
-                          << std::setw(12) << med_v3
-                          << std::setw(12) << (med_wc / med_v3)
+                // Sequential (2 calls with Cout/2)
+                double wc_s = bench([&]{
+                    conv_param_w_c(p, input.data(), kernel_h1.data(), out_h1.data(), co_half);
+                    conv_param_w_c(p, input.data(), kernel_h2.data(), out_h2.data(), co_half);
+                });
+                double cw_s = bench([&]{
+                    conv_param_c_w(p, input.data(), kernel_h1.data(), out_h1.data(), co_half);
+                    conv_param_c_w(p, input.data(), kernel_h2.data(), out_h2.data(), co_half);
+                });
+                double v3_s = bench([&]{
+                    conv_param_v3(p, input.data(), kernel_h1.data(), out_h1.data(), co_half);
+                    conv_param_v3(p, input.data(), kernel_h2.data(), out_h2.data(), co_half);
+                });
+
+                std::cout << std::left << std::fixed << std::setprecision(4)
+                          << std::setw(5)  << hw
+                          << std::setw(5)  << ci
+                          << std::setw(5)  << co
+                          << " | "
+                          << std::setw(10) << wc_c
+                          << std::setw(10) << wc_s
+                          << " | "
+                          << std::setw(10) << cw_c
+                          << std::setw(10) << cw_s
+                          << " | "
+                          << std::setw(10) << v3_c
+                          << std::setw(10) << v3_s
+                          << " | "
+                          << std::setw(8)  << (wc_c / v3_c)
+                          << std::setw(8)  << (wc_s / v3_s)
+                          << std::setw(8)  << (v3_s / v3_c)
+                          << " | "
                           << (ok ? "OK" : "FAIL") << std::endl;
             }
         }
     }
-    std::cout << std::string(100, '=') << std::endl;
+    std::cout << std::string(W, '=') << std::endl;
+    std::cout << "Columns: _c = combined (1 call), _s = sequential (2 x Cout/2)" << std::endl;
+    std::cout << "v3/w_c  = speedup of v3 combined over w_c combined" << std::endl;
+    std::cout << "v3s/wcs = speedup of v3 sequential over w_c sequential" << std::endl;
+    std::cout << "s/c v3  = ratio of v3 sequential to v3 combined (>1 means combined is faster)" << std::endl;
 }
+
 int main()
 {
 	// omp_set_num_threads(8);
