@@ -337,6 +337,7 @@ std::vector<float> conv_optimized_w_c(const std::vector<float> &input_NCHWc, con
 #pragma omp simd simdlen(8)
 									for (int c_out_inner = 0; c_out_inner < BLOCK_SIZE; c_out_inner++)
 									{
+										// для каждого w_out значение вычислятеся заново
 										float kernel_val = kernel_OIHWio[c_out_block * C_in_block * KH * KW * BLOCK_SIZE * BLOCK_SIZE + c_in_block * KH * KW * BLOCK_SIZE * BLOCK_SIZE + kh * KW * BLOCK_SIZE * BLOCK_SIZE + kw * BLOCK_SIZE * BLOCK_SIZE + c_in_inner * BLOCK_SIZE + c_out_inner];
 										accum_block[w_out * BLOCK_SIZE + c_out_inner] += input_val * kernel_val;
 									}
@@ -435,6 +436,7 @@ std::vector<float> conv_optimized_c_w(const std::vector<float> &input_NCHWc, con
 						{
 							for (int c_in_inner = 0; c_in_inner < BLOCK_SIZE; c_in_inner++)
 							{
+								const float* tmp_ptr = &kernel_OIHWio[c_out_block * C_in_block * KH * KW * BLOCK_SIZE * BLOCK_SIZE + c_in_block * KH * KW * BLOCK_SIZE * BLOCK_SIZE + kh * KW * BLOCK_SIZE * BLOCK_SIZE + kw * BLOCK_SIZE * BLOCK_SIZE + c_in_inner * BLOCK_SIZE];
 								for (int w_out = 0; w_out < W_out; w_out++)
 								{
 									int w_in_coord = w_out + kw;
@@ -442,7 +444,8 @@ std::vector<float> conv_optimized_c_w(const std::vector<float> &input_NCHWc, con
 #pragma omp simd simdlen(8)
 									for (int c_out_inner = 0; c_out_inner < BLOCK_SIZE; c_out_inner++)
 									{
-										float kernel_val = kernel_OIHWio[c_out_block * C_in_block * KH * KW * BLOCK_SIZE * BLOCK_SIZE + c_in_block * KH * KW * BLOCK_SIZE * BLOCK_SIZE + kh * KW * BLOCK_SIZE * BLOCK_SIZE + kw * BLOCK_SIZE * BLOCK_SIZE + c_in_inner * BLOCK_SIZE + c_out_inner];
+										float kernel_val = tmp_ptr[c_out_inner];
+										//float kernel_val = kernel_OIHWio[c_out_block * C_in_block * KH * KW * BLOCK_SIZE * BLOCK_SIZE + c_in_block * KH * KW * BLOCK_SIZE * BLOCK_SIZE + kh * KW * BLOCK_SIZE * BLOCK_SIZE + kw * BLOCK_SIZE * BLOCK_SIZE + c_in_inner * BLOCK_SIZE + c_out_inner];
 										accum_block[w_out * BLOCK_SIZE + c_out_inner] += input_val * kernel_val;
 									}
 								}
@@ -579,203 +582,215 @@ std::vector<float> conv_optimized_v3(const std::vector<float> &input_NCHWc, cons
 // ================================================================
 
 void conv_param_w_c(const ConvParams &p, const float *input, const float *kernel,
-                    float *output, int C_out_curr)
+					float *output, int C_out_curr)
 {
-    const int BS = BLOCK_SIZE;
-    const int C_out_block_curr = C_out_curr / BS;
-    const int c_in_blk  = p.C_in_block();
-    const int h_out     = p.H_out();
-    const int w_out     = p.W_out();
+	const int BS = BLOCK_SIZE;
+	const int C_out_block_curr = C_out_curr / BS;
+	const int c_in_blk = p.C_in_block();
+	const int h_out = p.H_out();
+	const int w_out = p.W_out();
 
 #pragma omp parallel for collapse(3)
-    for (int n = 0; n < p.N; n++) {
-        for (int cob = 0; cob < C_out_block_curr; cob++) {
-            for (int ho = 0; ho < h_out; ho++) {
-                // runtime-sized accumulation buffer (max 56*8 = 448 floats)
-                float accum_block[56 * 8] = {};
+	for (int n = 0; n < p.N; n++)
+	{
+		for (int cob = 0; cob < C_out_block_curr; cob++)
+		{
+			for (int ho = 0; ho < h_out; ho++)
+			{
+				// runtime-sized accumulation buffer (max 56*8 = 448 floats)
+				float accum_block[56 * 8] = {};
 
-                for (int cib = 0; cib < c_in_blk; cib++) {
-                    for (int kh = 0; kh < p.KH; kh++) {
-                        int h_in_coord = ho + kh;
-                        for (int kw = 0; kw < p.KW; kw++) {
-                            for (int wo = 0; wo < w_out; wo++) {
-                                int w_in_coord = wo + kw;
-                                for (int ci = 0; ci < BS; ci++) {
-                                    float iv = input[n * c_in_blk * p.H_in * p.W_in * BS
-                                                     + cib * p.H_in * p.W_in * BS
-                                                     + h_in_coord * p.W_in * BS
-                                                     + w_in_coord * BS + ci];
+				for (int cib = 0; cib < c_in_blk; cib++)
+				{
+					for (int kh = 0; kh < p.KH; kh++)
+					{
+						int h_in_coord = ho + kh;
+						for (int kw = 0; kw < p.KW; kw++)
+						{
+							for (int wo = 0; wo < w_out; wo++)
+							{
+								int w_in_coord = wo + kw;
+								for (int ci = 0; ci < BS; ci++)
+								{
+									float iv = input[n * c_in_blk * p.H_in * p.W_in * BS + cib * p.H_in * p.W_in * BS + h_in_coord * p.W_in * BS + w_in_coord * BS + ci];
 #pragma omp simd simdlen(8)
-                                    for (int co = 0; co < BS; co++) {
-                                        float kv = kernel[cob * c_in_blk * p.KH * p.KW * BS * BS
-                                                          + cib * p.KH * p.KW * BS * BS
-                                                          + kh * p.KW * BS * BS
-                                                          + kw * BS * BS
-                                                          + ci * BS + co];
-                                        accum_block[wo * BS + co] += iv * kv;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                for (int wo = 0; wo < w_out; wo++) {
+									for (int co = 0; co < BS; co++)
+									{
+										float kv = kernel[cob * c_in_blk * p.KH * p.KW * BS * BS + cib * p.KH * p.KW * BS * BS + kh * p.KW * BS * BS + kw * BS * BS + ci * BS + co];
+										accum_block[wo * BS + co] += iv * kv;
+									}
+								}
+							}
+						}
+					}
+				}
+				for (int wo = 0; wo < w_out; wo++)
+				{
 #pragma omp simd simdlen(8)
-                    for (int co = 0; co < BS; co++) {
-                        output[n * h_out * w_out * C_out_curr
-                               + ho * w_out * C_out_curr
-                               + wo * C_out_curr
-                               + cob * BS + co] = accum_block[wo * BS + co];
-                    }
-                }
-            }
-        }
-    }
+					for (int co = 0; co < BS; co++)
+					{
+						output[n * h_out * w_out * C_out_curr + ho * w_out * C_out_curr + wo * C_out_curr + cob * BS + co] = accum_block[wo * BS + co];
+					}
+				}
+			}
+		}
+	}
 }
 
 void conv_param_c_w(const ConvParams &p, const float *input, const float *kernel,
-                    float *output, int C_out_curr)
+					float *output, int C_out_curr)
 {
-    const int BS = BLOCK_SIZE;
-    const int C_out_block_curr = C_out_curr / BS;
-    const int c_in_blk  = p.C_in_block();
-    const int h_out     = p.H_out();
-    const int w_out     = p.W_out();
+	const int BS = BLOCK_SIZE;
+	const int C_out_block_curr = C_out_curr / BS;
+	const int c_in_blk = p.C_in_block();
+	const int h_out = p.H_out();
+	const int w_out = p.W_out();
 
 #pragma omp parallel for collapse(3)
-    for (int n = 0; n < p.N; n++) {
-        for (int cob = 0; cob < C_out_block_curr; cob++) {
-            for (int ho = 0; ho < h_out; ho++) {
-                float accum_block[56 * 8] = {};
+	for (int n = 0; n < p.N; n++)
+	{
+		for (int cob = 0; cob < C_out_block_curr; cob++)
+		{
+			for (int ho = 0; ho < h_out; ho++)
+			{
+				float accum_block[56 * 8] = {};
 
-                for (int cib = 0; cib < c_in_blk; cib++) {
-                    for (int kh = 0; kh < p.KH; kh++) {
-                        int h_in_coord = ho + kh;
-                        for (int kw = 0; kw < p.KW; kw++) {
-                            for (int ci = 0; ci < BS; ci++) {
-                                for (int wo = 0; wo < w_out; wo++) {
-                                    int w_in_coord = wo + kw;
-                                    float iv = input[n * c_in_blk * p.H_in * p.W_in * BS
-                                                     + cib * p.H_in * p.W_in * BS
-                                                     + h_in_coord * p.W_in * BS
-                                                     + w_in_coord * BS + ci];
+				for (int cib = 0; cib < c_in_blk; cib++)
+				{
+					for (int kh = 0; kh < p.KH; kh++)
+					{
+						int h_in_coord = ho + kh;
+						for (int kw = 0; kw < p.KW; kw++)
+						{
+							for (int ci = 0; ci < BS; ci++)
+							{
+								for (int wo = 0; wo < w_out; wo++)
+								{
+									int w_in_coord = wo + kw;
+									float iv = input[n * c_in_blk * p.H_in * p.W_in * BS + cib * p.H_in * p.W_in * BS + h_in_coord * p.W_in * BS + w_in_coord * BS + ci];
 #pragma omp simd simdlen(8)
-                                    for (int co = 0; co < BS; co++) {
-                                        float kv = kernel[cob * c_in_blk * p.KH * p.KW * BS * BS
-                                                          + cib * p.KH * p.KW * BS * BS
-                                                          + kh * p.KW * BS * BS
-                                                          + kw * BS * BS
-                                                          + ci * BS + co];
-                                        accum_block[wo * BS + co] += iv * kv;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                for (int wo = 0; wo < w_out; wo++) {
+									for (int co = 0; co < BS; co++)
+									{
+										float kv = kernel[cob * c_in_blk * p.KH * p.KW * BS * BS + cib * p.KH * p.KW * BS * BS + kh * p.KW * BS * BS + kw * BS * BS + ci * BS + co];
+										accum_block[wo * BS + co] += iv * kv;
+									}
+								}
+							}
+						}
+					}
+				}
+				for (int wo = 0; wo < w_out; wo++)
+				{
 #pragma omp simd simdlen(8)
-                    for (int co = 0; co < BS; co++) {
-                        output[n * h_out * w_out * C_out_curr
-                               + ho * w_out * C_out_curr
-                               + wo * C_out_curr
-                               + cob * BS + co] = accum_block[wo * BS + co];
-                    }
-                }
-            }
-        }
-    }
+					for (int co = 0; co < BS; co++)
+					{
+						output[n * h_out * w_out * C_out_curr + ho * w_out * C_out_curr + wo * C_out_curr + cob * BS + co] = accum_block[wo * BS + co];
+					}
+				}
+			}
+		}
+	}
 }
 
 void conv_param_v3(const ConvParams &p, const float *input, const float *kernel,
-                   float *output, int C_out_curr)
+				   float *output, int C_out_curr)
 {
-    const int BS = BLOCK_SIZE;
-    const int C_out_block_curr = C_out_curr / BS;
-    const int c_in_blk = p.C_in_block();
-    const int h_out    = p.H_out();
-    const int w_out    = p.W_out();
+	const int BS = BLOCK_SIZE;
+	const int C_out_block_curr = C_out_curr / BS;
+	const int c_in_blk = p.C_in_block();
+	const int h_out = p.H_out();
+	const int w_out = p.W_out();
 
-    const int in_stride_n = c_in_blk * p.H_in * p.W_in * BS;
-    const int in_stride_c = p.H_in * p.W_in * BS;
-    const int in_stride_h = p.W_in * BS;
-    const int in_stride_w = BS;
+	const int in_stride_n = c_in_blk * p.H_in * p.W_in * BS;
+	const int in_stride_c = p.H_in * p.W_in * BS;
+	const int in_stride_h = p.W_in * BS;
+	const int in_stride_w = BS;
 
-    const int k_stride_cout   = c_in_blk * p.KH * p.KW * BS * BS;
-    const int k_stride_cin    = p.KH * p.KW * BS * BS;
-    const int k_stride_kh     = p.KW * BS * BS;
-    const int k_stride_kw     = BS * BS;
-    const int k_stride_cinner = BS;
+	const int k_stride_cout = c_in_blk * p.KH * p.KW * BS * BS;
+	const int k_stride_cin = p.KH * p.KW * BS * BS;
+	const int k_stride_kh = p.KW * BS * BS;
+	const int k_stride_kw = BS * BS;
+	const int k_stride_cinner = BS;
 
-    const int out_stride_n = h_out * w_out * C_out_curr;
-    const int out_stride_h = w_out * C_out_curr;
-    const int out_stride_w = C_out_curr;
-    const int out_stride_c = BS;
+	const int out_stride_n = h_out * w_out * C_out_curr;
+	const int out_stride_h = w_out * C_out_curr;
+	const int out_stride_w = C_out_curr;
+	const int out_stride_c = BS;
 
 #pragma omp parallel for collapse(3)
-    for (int n = 0; n < p.N; n++) {
-        for (int cob = 0; cob < C_out_block_curr; cob++) {
-            for (int ho = 0; ho < h_out; ho++) {
-                alignas(32) float accum_block[56 * 8];
-                for (int i = 0; i < w_out * BS; i++)
-                    accum_block[i] = 0.0f;
+	for (int n = 0; n < p.N; n++)
+	{
+		for (int cob = 0; cob < C_out_block_curr; cob++)
+		{
+			for (int ho = 0; ho < h_out; ho++)
+			{
+				alignas(32) float accum_block[56 * 8];
+				for (int i = 0; i < w_out * BS; i++)
+					accum_block[i] = 0.0f;
 
-                for (int cib = 0; cib < c_in_blk; cib++) {
-                    const float *in_base_c = &input[n * in_stride_n + cib * in_stride_c];
-                    const float *k_base_c  = &kernel[cob * k_stride_cout + cib * k_stride_cin];
+				for (int cib = 0; cib < c_in_blk; cib++)
+				{
+					const float *in_base_c = &input[n * in_stride_n + cib * in_stride_c];
+					const float *k_base_c = &kernel[cob * k_stride_cout + cib * k_stride_cin];
 
-                    for (int kh = 0; kh < p.KH; kh++) {
-                        int h_in_coord = ho + kh;
-                        const float *in_base_h  = in_base_c + h_in_coord * in_stride_h;
-                        const float *k_base_kh  = k_base_c  + kh * k_stride_kh;
+					for (int kh = 0; kh < p.KH; kh++)
+					{
+						int h_in_coord = ho + kh;
+						const float *in_base_h = in_base_c + h_in_coord * in_stride_h;
+						const float *k_base_kh = k_base_c + kh * k_stride_kh;
 
-                        for (int kw = 0; kw < p.KW; kw++) {
-                            const float *k_base_kw = k_base_kh + kw * k_stride_kw;
+						for (int kw = 0; kw < p.KW; kw++)
+						{
+							const float *k_base_kw = k_base_kh + kw * k_stride_kw;
 
-                            int wb = 0;
-                            for (; wb <= w_out - 4; wb += 4) {
-                                __m256 acc0 = _mm256_load_ps(&accum_block[(wb + 0) * BS]);
-                                __m256 acc1 = _mm256_load_ps(&accum_block[(wb + 1) * BS]);
-                                __m256 acc2 = _mm256_load_ps(&accum_block[(wb + 2) * BS]);
-                                __m256 acc3 = _mm256_load_ps(&accum_block[(wb + 3) * BS]);
+							int wb = 0;
+							for (; wb <= w_out - 4; wb += 4)
+							{
+								__m256 acc0 = _mm256_load_ps(&accum_block[(wb + 0) * BS]);
+								__m256 acc1 = _mm256_load_ps(&accum_block[(wb + 1) * BS]);
+								__m256 acc2 = _mm256_load_ps(&accum_block[(wb + 2) * BS]);
+								__m256 acc3 = _mm256_load_ps(&accum_block[(wb + 3) * BS]);
 
-                                const float *ip0 = in_base_h + (wb + 0 + kw) * in_stride_w;
-                                const float *ip1 = in_base_h + (wb + 1 + kw) * in_stride_w;
-                                const float *ip2 = in_base_h + (wb + 2 + kw) * in_stride_w;
-                                const float *ip3 = in_base_h + (wb + 3 + kw) * in_stride_w;
+								const float *ip0 = in_base_h + (wb + 0 + kw) * in_stride_w;
+								const float *ip1 = in_base_h + (wb + 1 + kw) * in_stride_w;
+								const float *ip2 = in_base_h + (wb + 2 + kw) * in_stride_w;
+								const float *ip3 = in_base_h + (wb + 3 + kw) * in_stride_w;
 
-                                for (int ci = 0; ci < BS; ci++) {
-                                    __m256 kv = _mm256_loadu_ps(k_base_kw + ci * k_stride_cinner);
-                                    acc0 = _mm256_fmadd_ps(_mm256_set1_ps(ip0[ci]), kv, acc0);
-                                    acc1 = _mm256_fmadd_ps(_mm256_set1_ps(ip1[ci]), kv, acc1);
-                                    acc2 = _mm256_fmadd_ps(_mm256_set1_ps(ip2[ci]), kv, acc2);
-                                    acc3 = _mm256_fmadd_ps(_mm256_set1_ps(ip3[ci]), kv, acc3);
-                                }
+								for (int ci = 0; ci < BS; ci++)
+								{
+									__m256 kv = _mm256_loadu_ps(k_base_kw + ci * k_stride_cinner);
+									acc0 = _mm256_fmadd_ps(_mm256_set1_ps(ip0[ci]), kv, acc0);
+									acc1 = _mm256_fmadd_ps(_mm256_set1_ps(ip1[ci]), kv, acc1);
+									acc2 = _mm256_fmadd_ps(_mm256_set1_ps(ip2[ci]), kv, acc2);
+									acc3 = _mm256_fmadd_ps(_mm256_set1_ps(ip3[ci]), kv, acc3);
+								}
 
-                                _mm256_store_ps(&accum_block[(wb + 0) * BS], acc0);
-                                _mm256_store_ps(&accum_block[(wb + 1) * BS], acc1);
-                                _mm256_store_ps(&accum_block[(wb + 2) * BS], acc2);
-                                _mm256_store_ps(&accum_block[(wb + 3) * BS], acc3);
-                            }
-                            for (; wb < w_out; wb++) {
-                                __m256 acc = _mm256_load_ps(&accum_block[wb * BS]);
-                                const float *ip = in_base_h + (wb + kw) * in_stride_w;
-                                for (int ci = 0; ci < BS; ci++) {
-                                    __m256 kv = _mm256_loadu_ps(k_base_kw + ci * k_stride_cinner);
-                                    acc = _mm256_fmadd_ps(_mm256_set1_ps(ip[ci]), kv, acc);
-                                }
-                                _mm256_store_ps(&accum_block[wb * BS], acc);
-                            }
-                        }
-                    }
-                }
+								_mm256_store_ps(&accum_block[(wb + 0) * BS], acc0);
+								_mm256_store_ps(&accum_block[(wb + 1) * BS], acc1);
+								_mm256_store_ps(&accum_block[(wb + 2) * BS], acc2);
+								_mm256_store_ps(&accum_block[(wb + 3) * BS], acc3);
+							}
+							for (; wb < w_out; wb++)
+							{
+								__m256 acc = _mm256_load_ps(&accum_block[wb * BS]);
+								const float *ip = in_base_h + (wb + kw) * in_stride_w;
+								for (int ci = 0; ci < BS; ci++)
+								{
+									__m256 kv = _mm256_loadu_ps(k_base_kw + ci * k_stride_cinner);
+									acc = _mm256_fmadd_ps(_mm256_set1_ps(ip[ci]), kv, acc);
+								}
+								_mm256_store_ps(&accum_block[wb * BS], acc);
+							}
+						}
+					}
+				}
 
-                for (int wo = 0; wo < w_out; wo++) {
-                    float *out_ptr = &output[n * out_stride_n + ho * out_stride_h
-                                             + wo * out_stride_w + cob * out_stride_c];
-                    _mm256_storeu_ps(out_ptr, _mm256_load_ps(&accum_block[wo * BS]));
-                }
-            }
-        }
-    }
+				for (int wo = 0; wo < w_out; wo++)
+				{
+					float *out_ptr = &output[n * out_stride_n + ho * out_stride_h + wo * out_stride_w + cob * out_stride_c];
+					_mm256_storeu_ps(out_ptr, _mm256_load_ps(&accum_block[wo * BS]));
+				}
+			}
+		}
+	}
 }
