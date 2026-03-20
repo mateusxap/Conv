@@ -16,9 +16,9 @@ static inline void pin_to_cpu0()
 #endif
 }
 
-void avx_add(const float *__restrict a, const float *__restrict b, float *__restrict r, size_t n)
+void avx_add(const float *__restrict a, const float *__restrict b, float *__restrict r, int n)
 {
-    size_t i = 0;
+    int i = 0;
     for (; i + 8 <= n; i += 8)
     {
         __m256 va = _mm256_loadu_ps(a + i);
@@ -40,9 +40,9 @@ void avx_add(const float *__restrict a, const float *__restrict b, float *__rest
 }
 
 //__attribute__((optimize("no-tree-vectorize")))
-void scalar_add(const float *a, const float *b, float *r, size_t n)
+void scalar_add(const float *a, const float *b, float *r, int n)
 {
-    for (size_t i = 0; i < n; ++i)
+    for (int i = 0; i < n; ++i)
         r[i] = a[i] * b[i] + a[i] / b[i] + b[i] / a[i] + b[i] + a[i];
 }
 
@@ -50,7 +50,7 @@ int main()
 {
     pin_to_cpu0();
 
-    const size_t n = 200'000'000; // ~0.8 ГБ на массив
+    const int n = 200'000'000; // ~0.8 ГБ на массив
     std::vector<float> a(n, 1.0f), b(n, 2.0f), r(n, 0.0f);
 
     // прогрев

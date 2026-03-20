@@ -9,7 +9,7 @@
 // Скалярная версия (a*b + c)
 void scalar_fma(const std::vector<float> &a, const std::vector<float> &b, std::vector<float> &c)
 {
-    for (size_t i = 0; i < a.size(); ++i)
+    for (int i = 0; i < a.size(); ++i)
     {
         c[i] = a[i] * b[i] + c[i];
     }
@@ -18,7 +18,7 @@ void scalar_fma(const std::vector<float> &a, const std::vector<float> &b, std::v
 // // Векторная версия (AVX + FMA)
 // void avx_fma(const std::vector<float> &a, const std::vector<float> &b, std::vector<float> &c)
 // {
-//     size_t i = 0;
+//     int i = 0;
 //     for (; i + 7 < a.size(); i += 8)
 //     {
 //         __m256 a_vec = _mm256_loadu_ps(&a[i]);
@@ -40,7 +40,7 @@ void scalar_fma(const std::vector<float> &a, const std::vector<float> &b, std::v
 
 int main()
 {
-    const size_t size = 100000000;
+    const int size = 100000000;
     const int warmup_runs = 3;
     const int bench_runs = 10;
 

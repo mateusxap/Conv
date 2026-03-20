@@ -1,15 +1,15 @@
-﻿#include "Conv.hpp"
+#include "Conv.hpp"
 #include <iomanip>
 #include "omp.h"
 #include <algorithm>
 #include <vector>
 
-// int benchmark_NCHW_convs(size_t N_BATCH, size_t H_DIM, size_t W_DIM, size_t C_IN_DIM, size_t C_OUT_1x1_DIM, size_t C_OUT_3x3_DIM, int N_ITERATIONS = 10, int WARMUP_ITERATIONS = 5)
+// int benchmark_NCHW_convs(int N_BATCH, int H_DIM, int W_DIM, int C_IN_DIM, int C_OUT_1x1_DIM, int C_OUT_3x3_DIM, int N_ITERATIONS = 10, int WARMUP_ITERATIONS = 5)
 // {
 // 	// init
 // 	std::mt19937 rng(1234);
 // 	std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
-// 	const size_t C_OUT_TOTAL_DIM = C_OUT_1x1_DIM + C_OUT_3x3_DIM;
+// 	const int C_OUT_TOTAL_DIM = C_OUT_1x1_DIM + C_OUT_3x3_DIM;
 
 // 	Tensor4D_NCHW input(N_BATCH, C_IN_DIM, H_DIM, W_DIM);
 // 	input.setRandom(rng, dist);
@@ -23,21 +23,21 @@
 
 // 	// Big kernel for B
 // 	Tensor4D_NCHW kernel_combined_zeros(C_OUT_TOTAL_DIM, C_IN_DIM, 3, 3);
-// 	for (size_t c_out = 0; c_out < C_OUT_1x1_DIM; ++c_out)
+// 	for (int c_out = 0; c_out < C_OUT_1x1_DIM; ++c_out)
 // 	{
-// 		for (size_t c_in = 0; c_in < C_IN_DIM; ++c_in)
+// 		for (int c_in = 0; c_in < C_IN_DIM; ++c_in)
 // 		{
 // 			// Cental el 3x3: (1,1)
 // 			kernel_combined_zeros(c_out, c_in, 1, 1) = kernel_1x1(c_out, c_in, 0, 0);
 // 		}
 // 	}
-// 	for (size_t c_out = 0; c_out < C_OUT_3x3_DIM; ++c_out)
+// 	for (int c_out = 0; c_out < C_OUT_3x3_DIM; ++c_out)
 // 	{
-// 		for (size_t c_in = 0; c_in < C_IN_DIM; ++c_in)
+// 		for (int c_in = 0; c_in < C_IN_DIM; ++c_in)
 // 		{
-// 			for (size_t kh = 0; kh < 3; ++kh)
+// 			for (int kh = 0; kh < 3; ++kh)
 // 			{
-// 				for (size_t kw = 0; kw < 3; ++kw)
+// 				for (int kw = 0; kw < 3; ++kw)
 // 				{
 // 					// Сдвиг по выходным каналам для 3x3
 // 					kernel_combined_zeros(C_OUT_1x1_DIM + c_out, c_in, kh, kw) =
@@ -147,7 +147,7 @@
 // 	return 0;
 // }
 
-// int benchmark_NHWC_convs(size_t N_BATCH, size_t H_DIM, size_t W_DIM, size_t C_IN_DIM, size_t C_OUT_1x1_DIM, size_t C_OUT_3x3_DIM, int N_ITERATIONS = 10, int WARMUP_ITERATIONS = 5)
+// int benchmark_NHWC_convs(int N_BATCH, int H_DIM, int W_DIM, int C_IN_DIM, int C_OUT_1x1_DIM, int C_OUT_3x3_DIM, int N_ITERATIONS = 10, int WARMUP_ITERATIONS = 5)
 // {
 // 	// init
 // 	std::mt19937 rng(1234);
@@ -277,10 +277,10 @@ int benchmark_NCHWc_convs_googlenet()
 	}
 
 	// Sizes
-	size_t C_out_1 = 384;
-	size_t C_out_2 = 192;
-	size_t C_out_3 = 48;
-	size_t C_out_combined = C_out_1 + C_out_2 + C_out_3; // 624
+	int C_out_1 = 384;
+	int C_out_2 = 192;
+	int C_out_3 = 48;
+	int C_out_combined = C_out_1 + C_out_2 + C_out_3; // 624
 
 	// Kernels
 	std::vector<float> kernel1(C_out_1 * C_in * KH * KW);
@@ -325,7 +325,7 @@ int benchmark_NCHWc_convs_googlenet()
 								const std::vector<float> &out)
 	{
 		const float tol = 1e-3f;
-		for (size_t i = 0; i < ref.size(); ++i)
+		for (int i = 0; i < ref.size(); ++i)
 		{
 			if (std::abs(ref[i] - out[i]) > tol)
 			{
@@ -510,12 +510,12 @@ void benchmark_NCHWc_sweep()
 
 					int h_o = p.H_out();
 					int w_o = p.W_out();
-					size_t in_sz = (size_t)p.N * ci * hw * hw;
-					size_t out_sz = (size_t)p.N * h_o * w_o * co;
+					int in_sz = (int)p.N * ci * hw * hw;
+					int out_sz = (int)p.N * h_o * w_o * co;
 					int co_half = co / 2;
-					size_t k_sz_full = (size_t)co * ci;
-					size_t k_sz_half = (size_t)co_half * ci;
-					size_t out_sz_half = (size_t)p.N * h_o * w_o * co_half;
+					int k_sz_full = (int)co * ci;
+					int k_sz_half = (int)co_half * ci;
+					int out_sz_half = (int)p.N * h_o * w_o * co_half;
 
 					// Allocate
 					std::vector<float> input(in_sz);
@@ -542,7 +542,7 @@ void benchmark_NCHWc_sweep()
 					conv_param_w_c(p, input.data(), kernel_full.data(), out_wc.data(), co);
 					conv_param_v3(p, input.data(), kernel_full.data(), out_v3.data(), co);
 					bool ok = true;
-					for (size_t i = 0; i < out_sz; i++)
+					for (int i = 0; i < out_sz; i++)
 					{
 						if (std::abs(out_wc[i] - out_v3[i]) > 1e-3f)
 						{
@@ -627,7 +627,7 @@ void benchmark_NCHWc_sweep()
 
 void benchmark_NHWC_basic_sweep()
 {
-    const int SWEEP_ITERS  = 100;
+    const int SWEEP_ITERS  = 20;
     const int SWEEP_WARMUP = 5;
     const int HW_vals[]    = {7, 14, 28, 56};
 
@@ -666,17 +666,39 @@ void benchmark_NHWC_basic_sweep()
         for (int ci : kc.cin_list) {
             for (int co : kc.cout_list) {
                 int co_half = co / 2;
+				ConvParams p;
+				p.N = 1;
+				p.C_in = ci;
+				p.H_in = hw;
+				p.W_in = hw;
+				p.KH = kc.kh;
+				p.KW = kc.kw;
 
-                Tensor4D_NHWC input(1, hw, hw, ci);
-                input.setRandom(rng, dist);
+				const int h_o = p.H_out();
+				const int w_o = p.W_out();
+				const int in_sz = p.N * p.H_in * p.W_in * p.C_in;
+				const int k_sz_full = p.KH * p.KW * p.C_in * co;
+				const int k_sz_half = p.KH * p.KW * p.C_in * co_half;
+				const int out_sz_full = p.N * h_o * w_o * co;
+				const int out_sz_half = p.N * h_o * w_o * co_half;
 
-                Tensor4D_HWIO kernel_full(kc.kh, kc.kw, ci, co);
-                kernel_full.setRandom(rng, dist);
+				std::vector<float> input(in_sz);
+				for (float &v : input)
+					v = dist(rng);
 
-                Tensor4D_HWIO kernel_h1(kc.kh, kc.kw, ci, co_half);
-                kernel_h1.setRandom(rng, dist);
-                Tensor4D_HWIO kernel_h2(kc.kh, kc.kw, ci, co_half);
-                kernel_h2.setRandom(rng, dist);
+				std::vector<float> kernel_full(k_sz_full);
+				for (float &v : kernel_full)
+					v = dist(rng);
+				std::vector<float> kernel_h1(k_sz_half);
+				for (float &v : kernel_h1)
+					v = dist(rng);
+				std::vector<float> kernel_h2(k_sz_half);
+				for (float &v : kernel_h2)
+					v = dist(rng);
+
+				std::vector<float> out_full(out_sz_full, 0.0f);
+				std::vector<float> out_h1(out_sz_half, 0.0f);
+				std::vector<float> out_h2(out_sz_half, 0.0f);
 
                 auto bench = [&](auto fn) -> double {
                     std::vector<double> durs;
@@ -693,15 +715,15 @@ void benchmark_NHWC_basic_sweep()
 
                 // Warmup
                 for (int it = 0; it < SWEEP_WARMUP; it++) {
-                    convolve_basic(input, kernel_full);
-                    convolve_basic(input, kernel_h1);
-                    convolve_basic(input, kernel_h2);
+					convolve_basic_param(p, input.data(), kernel_full.data(), out_full.data(), co);
+					convolve_basic_param(p, input.data(), kernel_h1.data(), out_h1.data(), co_half);
+					convolve_basic_param(p, input.data(), kernel_h2.data(), out_h2.data(), co_half);
                 }
 
-                double t_comb = bench([&]{ convolve_basic(input, kernel_full); });
+				double t_comb = bench([&]{ convolve_basic_param(p, input.data(), kernel_full.data(), out_full.data(), co); });
                 double t_seq  = bench([&]{
-                    convolve_basic(input, kernel_h1);
-                    convolve_basic(input, kernel_h2);
+					convolve_basic_param(p, input.data(), kernel_h1.data(), out_h1.data(), co_half);
+					convolve_basic_param(p, input.data(), kernel_h2.data(), out_h2.data(), co_half);
                 });
 
                 std::cout << std::left << std::fixed << std::setprecision(4)
@@ -731,7 +753,7 @@ int main()
 	//  benchmark_NCHW_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
 	//  benchmark_NHWC_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
 	// benchmark_NCHWc_convs_googlenet();
-	// benchmark_NCHWc_sweep();
-	benchmark_NHWC_basic_sweep();
+	benchmark_NCHWc_sweep();
+	// benchmark_NHWC_basic_sweep();
 	return 0;
 }
