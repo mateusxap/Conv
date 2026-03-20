@@ -676,8 +676,7 @@ void conv_param_w_c(const ConvParams &p, const float *input, const float *kernel
 		{
 			for (int ho = 0; ho < h_out; ho++)
 			{
-				// runtime-sized accumulation buffer (max 56*8 = 448 floats)
-				float accum_block[56 * 8] = {};
+				std::vector<float> accum_block(w_out * BS, 0.0f);
 
 				for (int cib = 0; cib < c_in_blk; cib++)
 				{
@@ -732,7 +731,7 @@ void conv_param_c_w(const ConvParams &p, const float *input, const float *kernel
 		{
 			for (int ho = 0; ho < h_out; ho++)
 			{
-				float accum_block[56 * 8] = {};
+				std::vector<float> accum_block(w_out * BS, 0.0f);
 
 				for (int cib = 0; cib < c_in_blk; cib++)
 				{
@@ -803,9 +802,7 @@ void conv_param_v3(const ConvParams &p, const float *input, const float *kernel,
 		{
 			for (int ho = 0; ho < h_out; ho++)
 			{
-				alignas(32) float accum_block[56 * 8];
-				for (int i = 0; i < w_out * BS; i++)
-					accum_block[i] = 0.0f;
+				std::vector<float> accum_block(w_out * BS, 0.0f);
 
 				for (int cib = 0; cib < c_in_blk; cib++)
 				{
@@ -825,10 +822,10 @@ void conv_param_v3(const ConvParams &p, const float *input, const float *kernel,
 							int wb = 0;
 							for (; wb <= w_out - 4; wb += 4)
 							{
-								__m256 acc0 = _mm256_load_ps(&accum_block[(wb + 0) * BS]);
-								__m256 acc1 = _mm256_load_ps(&accum_block[(wb + 1) * BS]);
-								__m256 acc2 = _mm256_load_ps(&accum_block[(wb + 2) * BS]);
-								__m256 acc3 = _mm256_load_ps(&accum_block[(wb + 3) * BS]);
+								__m256 acc0 = _mm256_loadu_ps(&accum_block[(wb + 0) * BS]);
+								__m256 acc1 = _mm256_loadu_ps(&accum_block[(wb + 1) * BS]);
+								__m256 acc2 = _mm256_loadu_ps(&accum_block[(wb + 2) * BS]);
+								__m256 acc3 = _mm256_loadu_ps(&accum_block[(wb + 3) * BS]);
 
 								const float *ip0 = in_base_h + (wb + 0 + kw) * in_stride_w;
 								const float *ip1 = in_base_h + (wb + 1 + kw) * in_stride_w;
@@ -844,21 +841,21 @@ void conv_param_v3(const ConvParams &p, const float *input, const float *kernel,
 									acc3 = _mm256_fmadd_ps(_mm256_set1_ps(ip3[ci]), kv, acc3);
 								}
 
-								_mm256_store_ps(&accum_block[(wb + 0) * BS], acc0);
-								_mm256_store_ps(&accum_block[(wb + 1) * BS], acc1);
-								_mm256_store_ps(&accum_block[(wb + 2) * BS], acc2);
-								_mm256_store_ps(&accum_block[(wb + 3) * BS], acc3);
+								_mm256_storeu_ps(&accum_block[(wb + 0) * BS], acc0);
+								_mm256_storeu_ps(&accum_block[(wb + 1) * BS], acc1);
+								_mm256_storeu_ps(&accum_block[(wb + 2) * BS], acc2);
+								_mm256_storeu_ps(&accum_block[(wb + 3) * BS], acc3);
 							}
 							for (; wb < w_out; wb++)
 							{
-								__m256 acc = _mm256_load_ps(&accum_block[wb * BS]);
+								__m256 acc = _mm256_loadu_ps(&accum_block[wb * BS]);
 								const float *ip = in_base_h + (wb + kw) * in_stride_w;
 								for (int ci = 0; ci < BS; ci++)
 								{
 									__m256 kv = _mm256_loadu_ps(k_base_kw + ci * k_stride_cinner);
 									acc = _mm256_fmadd_ps(_mm256_set1_ps(ip[ci]), kv, acc);
 								}
-								_mm256_store_ps(&accum_block[wb * BS], acc);
+								_mm256_storeu_ps(&accum_block[wb * BS], acc);
 							}
 						}
 					}
@@ -867,7 +864,7 @@ void conv_param_v3(const ConvParams &p, const float *input, const float *kernel,
 				for (int wo = 0; wo < w_out; wo++)
 				{
 					float *out_ptr = &output[n * out_stride_n + ho * out_stride_h + wo * out_stride_w + cob * out_stride_c];
-					_mm256_storeu_ps(out_ptr, _mm256_load_ps(&accum_block[wo * BS]));
+					_mm256_storeu_ps(out_ptr, _mm256_loadu_ps(&accum_block[wo * BS]));
 				}
 			}
 		}
