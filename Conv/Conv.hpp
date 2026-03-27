@@ -56,31 +56,20 @@ public:
 };
 
 static std::vector<float> pad_nhwc(const std::vector<float> &input,
-                                   int N, int H, int W, int C, int pad);
-
-void convolve_fused_1x1_3x3_param(
-	const ConvParams &p,
-	const float *padded_input,
-	const float *kernel_1x1_HWIO,
-	const float *kernel_3x3_HWIO,
-	float *output,
-	int C_out_1x1,
-	int C_out_3x3);
+								   int N, int H, int W, int C, int pad);
 
 std::vector<float> convolve_fused_1x1_3x3(
-    const std::vector<float> &padded_input_NHWC,
-    const std::vector<float> &kernel_1x1_HWIO,
-    const std::vector<float> &kernel_3x3_HWIO,
-    std::vector<float>       &output,
-    int N, int H_in, int W_in, int C_in,
-    int C_out_1x1, int C_out_3x3);
-
+	const std::vector<float> &padded_input_NHWC,
+	const std::vector<float> &kernel_1x1_HWIO,
+	const std::vector<float> &kernel_3x3_HWIO,
+	std::vector<float> &output,
+	int N, int H_in, int W_in, int C_in,
+	int C_out_1x1, int C_out_3x3);
 
 std::vector<float> convolve_basic(const std::vector<float> &input_NHWC,
 								  const std::vector<float> &kernel_HWIO,
 								  std::vector<float> &output,
 								  int C_out_curr);
-
 
 const int N = 1;
 const int C_in = 256;
@@ -104,25 +93,35 @@ std::vector<float> conv_optimized_c_w(const std::vector<float> &input_NCHWc, con
 std::vector<float> conv_optimized_v3(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio, std::vector<float> &output, int C_out_curr = C_out);
 
 // ---- Parameterized convolution support ----
-struct ConvParams {
-    int N   = 1;
-    int C_in;
-    int H_in;
-    int W_in;
-    int KH  = 1;
-    int KW  = 1;
+struct ConvParams
+{
+	int N = 1;
+	int C_in;
+	int H_in;
+	int W_in;
+	int KH = 1;
+	int KW = 1;
 
-    int H_out()      const { return H_in - KH + 1; }
-    int W_out()      const { return W_in - KW + 1; }
-    int C_in_block() const { return C_in / BLOCK_SIZE; }
+	int H_out() const { return H_in - KH + 1; }
+	int W_out() const { return W_in - KW + 1; }
+	int C_in_block() const { return C_in / BLOCK_SIZE; }
 };
 
 void conv_param_w_c(const ConvParams &p, const float *input, const float *kernel,
-                    float *output, int C_out_curr);
+					float *output, int C_out_curr);
 void conv_param_c_w(const ConvParams &p, const float *input, const float *kernel,
-                    float *output, int C_out_curr);
-void conv_param_v3 (const ConvParams &p, const float *input, const float *kernel,
-                    float *output, int C_out_curr);
+					float *output, int C_out_curr);
+void conv_param_v3(const ConvParams &p, const float *input, const float *kernel,
+				   float *output, int C_out_curr);
 
 void convolve_basic_param(const ConvParams &p, const float *input, const float *kernel,
 						  float *output, int C_out_curr);
+
+void convolve_fused_1x1_3x3_param(
+	const ConvParams &p,
+	const float *padded_input,
+	const float *kernel_1x1_HWIO,
+	const float *kernel_3x3_HWIO,
+	float *output,
+	int C_out_1x1,
+	int C_out_3x3);

@@ -758,6 +758,190 @@ void benchmark_NHWC_basic_sweep()
 	std::cout << "Columns: comb = 1 call full Cout, seq = 2 calls Cout/2, s/c = seq/comb ratio" << std::endl;
 }
 
+void benchmark_fused_1x1_3x3_sweep()
+{
+	const int SWEEP_ITERS = 100;
+	const int SWEEP_WARMUP = 10;
+	const int HW_vals[] = {7, 14, 28, 56};
+
+	std::mt19937 rng(42);
+	std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+
+	const int W = 100;
+	std::cout << std::endl;
+	std::cout << std::string(W, '=') << std::endl;
+	std::cout << "  Sweep benchmark: fused 1x1+3x3  vs  sequential 1x1 then 3x3  (N=1, same-padding)" << std::endl;
+	std::cout << "  seq = convolve_basic_param(1x1) + convolve_basic_param(3x3)" << std::endl;
+	std::cout << "  fus = convolve_fused_1x1_3x3_param (single call)" << std::endl;
+	std::cout << "  Iterations=" << SWEEP_ITERS << "  Warmup=" << SWEEP_WARMUP << std::endl;
+	std::cout << std::string(W, '=') << std::endl;
+	std::cout << std::left
+			  << std::setw(5) << "HW"
+			  << std::setw(6) << "Cin"
+			  << std::setw(7) << "Co1x1"
+			  << std::setw(7) << "Co3x3"
+			  << " | "
+			  << std::setw(11) << "fused(ms)"
+			  << std::setw(11) << "seq(ms)"
+			  << std::setw(8) << "seq/fus"
+			  << std::endl;
+	std::cout << std::string(W, '-') << std::endl;
+
+	struct Conf
+	{
+		int cin;
+		int co_1x1;
+		int co_3x3;
+	};
+
+	// Комбинации: маленькие → большие, разные соотношения 1x1/3x3
+	const std::vector<Conf> confs = {
+		// cin   co_1x1  co_3x3
+		{16, 16, 16},
+		{16, 32, 16},
+		{32, 32, 32},
+		{32, 64, 32},
+		{64, 64, 64},
+		{64, 128, 64},
+		{128, 128, 128},
+		{128, 256, 128},
+		{256, 256, 256},
+		{256, 512, 256},
+		{512, 256, 256},
+		{512, 512, 512},
+	};
+
+	for (int hw : HW_vals)
+	{
+		for (const auto &c : confs)
+		{
+			// ── размеры ───────────────────────────────────────────────────
+
+			// для fused: ConvParams описывает паддженный вход (KH=KW=3)
+			ConvParams p_fused;
+			p_fused.N = 1;
+			p_fused.C_in = c.cin;
+			p_fused.H_in = hw + 2; // same-padding: +1 с каждой стороны
+			p_fused.W_in = hw + 2;
+			p_fused.KH = 3;
+			p_fused.KW = 3;
+			// p_fused.H_out() == hw  ✓
+
+			// для sequential 1x1: оригинальный вход, KH=KW=1
+			ConvParams p_1x1;
+			p_1x1.N = 1;
+			p_1x1.C_in = c.cin;
+			p_1x1.H_in = hw;
+			p_1x1.W_in = hw;
+			p_1x1.KH = 1;
+			p_1x1.KW = 1;
+
+			// для sequential 3x3: паддженный вход, KH=KW=3
+			ConvParams p_3x3;
+			p_3x3.N = 1;
+			p_3x3.C_in = c.cin;
+			p_3x3.H_in = hw + 2;
+			p_3x3.W_in = hw + 2;
+			p_3x3.KH = 3;
+			p_3x3.KW = 3;
+
+			const int padded_in_sz = 1 * (hw + 2) * (hw + 2) * c.cin;
+			const int orig_in_sz = 1 * hw * hw * c.cin;
+
+			const int k1_sz = 1 * 1 * c.cin * c.co_1x1; // HWIO, H=W=1
+			const int k3_sz = 3 * 3 * c.cin * c.co_3x3; // HWIO
+
+			const int out_fused_sz = 1 * hw * hw * (c.co_1x1 + c.co_3x3);
+			const int out_1x1_sz = 1 * hw * hw * c.co_1x1;
+			const int out_3x3_sz = 1 * hw * hw * c.co_3x3;
+
+			// ── данные ────────────────────────────────────────────────────
+			std::vector<float> padded_input(padded_in_sz);
+			std::vector<float> orig_input(orig_in_sz);
+			for (float &v : padded_input)
+				v = dist(rng);
+			for (float &v : orig_input)
+				v = dist(rng);
+
+			std::vector<float> kernel_1x1(k1_sz);
+			std::vector<float> kernel_3x3(k3_sz);
+			for (float &v : kernel_1x1)
+				v = dist(rng);
+			for (float &v : kernel_3x3)
+				v = dist(rng);
+
+			std::vector<float> out_fused(out_fused_sz, 0.0f);
+			std::vector<float> out_seq_1x1(out_1x1_sz, 0.0f);
+			std::vector<float> out_seq_3x3(out_3x3_sz, 0.0f);
+
+			// ── bench helper ──────────────────────────────────────────────
+			auto bench = [&](auto fn) -> double
+			{
+				std::vector<double> durs;
+				durs.reserve(SWEEP_ITERS);
+				for (int it = 0; it < SWEEP_ITERS; ++it)
+				{
+					auto t0 = std::chrono::high_resolution_clock::now();
+					fn();
+					auto t1 = std::chrono::high_resolution_clock::now();
+					durs.push_back(
+						std::chrono::duration<double, std::milli>(t1 - t0).count());
+				}
+				std::sort(durs.begin(), durs.end());
+				return durs[durs.size() / 2]; // median
+			};
+
+			// ── warmup ────────────────────────────────────────────────────
+			for (int it = 0; it < SWEEP_WARMUP; ++it)
+			{
+				convolve_fused_1x1_3x3_param(
+					p_fused,
+					padded_input.data(),
+					kernel_1x1.data(), kernel_3x3.data(),
+					out_fused.data(),
+					c.co_1x1, c.co_3x3);
+
+				convolve_basic_param(p_1x1, orig_input.data(),
+									 kernel_1x1.data(), out_seq_1x1.data(), c.co_1x1);
+				convolve_basic_param(p_3x3, padded_input.data(),
+									 kernel_3x3.data(), out_seq_3x3.data(), c.co_3x3);
+			}
+
+			// ── измерения ─────────────────────────────────────────────────
+			double t_fused = bench([&]
+								   { convolve_fused_1x1_3x3_param(
+										 p_fused,
+										 padded_input.data(),
+										 kernel_1x1.data(), kernel_3x3.data(),
+										 out_fused.data(),
+										 c.co_1x1, c.co_3x3); });
+
+			double t_seq = bench([&]
+								 {
+                convolve_basic_param(p_1x1, orig_input.data(),
+                                     kernel_1x1.data(), out_seq_1x1.data(), c.co_1x1);
+                convolve_basic_param(p_3x3, padded_input.data(),
+                                     kernel_3x3.data(), out_seq_3x3.data(), c.co_3x3); });
+
+			// ── вывод ─────────────────────────────────────────────────────
+			std::cout << std::left << std::fixed << std::setprecision(4)
+					  << std::setw(5) << hw
+					  << std::setw(6) << c.cin
+					  << std::setw(7) << c.co_1x1
+					  << std::setw(7) << c.co_3x3
+					  << " | "
+					  << std::setw(11) << t_fused
+					  << std::setw(11) << t_seq
+					  << std::setw(8) << (t_seq / t_fused)
+					  << std::endl;
+		}
+		std::cout << std::string(W, '-') << std::endl;
+	}
+
+	std::cout << std::string(W, '=') << std::endl;
+	std::cout << "seq/fus > 1.0 => fused wins" << std::endl;
+}
+
 int main()
 {
 	// omp_set_num_threads(8);
@@ -766,6 +950,7 @@ int main()
 	//  benchmark_NHWC_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
 	// benchmark_NCHWc_convs_googlenet();
 	// benchmark_NCHWc_sweep();
-	benchmark_NHWC_basic_sweep();
+	// benchmark_NHWC_basic_sweep();
+	benchmark_fused_1x1_3x3_sweep();
 	return 0;
 }
