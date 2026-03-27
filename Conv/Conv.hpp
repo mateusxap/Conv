@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <iostream>
 #include <vector>
@@ -55,54 +55,32 @@ public:
 	Tensor4D_NCHW concatenateChannels(const Tensor4D &t2) const;
 };
 
-class Tensor4D_NHWC : public Tensor4D
-{
-public:
-	Tensor4D_NHWC(int b = 0, int h = 0, int w = 0, int c = 0) : Tensor4D(b, c, h, w) {}
-	inline float &operator()(int n, int h, int w, int c) override
-	{
-		return data[n * H_dim * W_dim * C_dim + h * W_dim * C_dim + w * C_dim + c];
-	}
-	inline const float &operator()(int n, int h, int w, int c) const override
-	{
-		return data[n * H_dim * W_dim * C_dim + h * W_dim * C_dim + w * C_dim + c];
-	}
-	Tensor4D_NHWC pad_same_3x3() const;
-	Tensor4D_NHWC concatenateChannels(const Tensor4D &t2) const;
-};
+static std::vector<float> pad_nhwc(const std::vector<float> &input,
+                                   int N, int H, int W, int C, int pad);
 
-class Tensor4D_HWIO : public Tensor4D
-{
-public:
-	Tensor4D_HWIO(int h = 0, int w = 0, int i = 0, int o = 0) : Tensor4D(o, i, h, w) {}
-	inline float &operator()(int h, int w, int i, int o) override
-	{
-		return data[h * W_dim * C_dim * B_dim + w * C_dim * B_dim + i * B_dim + o];
-	}
-	inline const float &operator()(int h, int w, int i, int o) const override
-	{
-		return data[h * W_dim * C_dim * B_dim + w * C_dim * B_dim + i * B_dim + o];
-	}
-};
+void convolve_fused_1x1_3x3_param(
+	const ConvParams &p,
+	const float *padded_input,
+	const float *kernel_1x1_HWIO,
+	const float *kernel_3x3_HWIO,
+	float *output,
+	int C_out_1x1,
+	int C_out_3x3);
 
-Tensor4D_NCHW convolve_basic(const Tensor4D_NCHW &input_maybe_padded, const Tensor4D_NCHW &kernel);
+std::vector<float> convolve_fused_1x1_3x3(
+    const std::vector<float> &padded_input_NHWC,
+    const std::vector<float> &kernel_1x1_HWIO,
+    const std::vector<float> &kernel_3x3_HWIO,
+    std::vector<float>       &output,
+    int N, int H_in, int W_in, int C_in,
+    int C_out_1x1, int C_out_3x3);
 
-Tensor4D_NCHW convolve_fused_1x1_3x3_with_if(const Tensor4D_NCHW &input,
-											 const Tensor4D_NCHW &kernel_1x1,
-											 const Tensor4D_NCHW &kernel_3x3);
-
-Tensor4D_NCHW convolve_fused_1x1_3x3_no_if(const Tensor4D_NCHW &input,
-										   const Tensor4D_NCHW &kernel_1x1,
-										   const Tensor4D_NCHW &kernel_3x3);
 
 std::vector<float> convolve_basic(const std::vector<float> &input_NHWC,
 								  const std::vector<float> &kernel_HWIO,
 								  std::vector<float> &output,
 								  int C_out_curr);
 
-Tensor4D_NHWC convolve_fused_1x1_3x3_no_if(const Tensor4D_NHWC &input,
-										   const Tensor4D_NHWC &kernel_1x1,
-										   const Tensor4D_NHWC &kernel_3x3);
 
 const int N = 1;
 const int C_in = 256;

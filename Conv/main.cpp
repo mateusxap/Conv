@@ -1,4 +1,4 @@
-#include "Conv.hpp"
+﻿#include "Conv.hpp"
 #include <iomanip>
 #include "omp.h"
 #include <algorithm>
@@ -624,126 +624,138 @@ void benchmark_NCHWc_sweep()
 	std::cout << "s/c v3  = ratio of v3 sequential to v3 combined (>1 means combined is faster)" << std::endl;
 }
 
-
 void benchmark_NHWC_basic_sweep()
 {
-    const int SWEEP_ITERS  = 20;
-    const int SWEEP_WARMUP = 5;
-    const int HW_vals[]    = {7, 14, 28, 56};
+	const int SWEEP_ITERS = 20;
+	const int SWEEP_WARMUP = 5;
+	const int HW_vals[] = {7, 14, 28, 56};
 
-    std::mt19937 rng(42);
-    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+	std::mt19937 rng(42);
+	std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
 
-    const int W = 88;
-    std::cout << std::endl;
-    std::cout << std::string(W, '=') << std::endl;
-    std::cout << "  Sweep benchmark: NHWC convolve_basic, N=1 (valid conv, no padding)" << std::endl;
-    std::cout << "  Combined = 1 call full Cout;  Sequential = 2 calls Cout/2 each" << std::endl;
-    std::cout << "  Iterations=" << SWEEP_ITERS << "  Warmup=" << SWEEP_WARMUP << std::endl;
-    std::cout << std::string(W, '=') << std::endl;
-    std::cout << std::left
-              << std::setw(4)  << "HW"
-              << std::setw(5)  << "Cin"
-              << std::setw(5)  << "Cout"
-              << std::setw(3)  << "KH"
-              << std::setw(3)  << "KW"
-              << " | "
-              << std::setw(10) << "comb(ms)"
-              << std::setw(10) << "seq(ms)"
-              << std::setw(7)  << "s/c"
-              << std::endl;
-    std::cout << std::string(W, '-') << std::endl;
+	const int W = 88;
+	std::cout << std::endl;
+	std::cout << std::string(W, '=') << std::endl;
+	std::cout << "  Sweep benchmark: NHWC convolve_basic, N=1 (valid conv, no padding)" << std::endl;
+	std::cout << "  Combined = 1 call full Cout;  Sequential = 2 calls Cout/2 each" << std::endl;
+	std::cout << "  Iterations=" << SWEEP_ITERS << "  Warmup=" << SWEEP_WARMUP << std::endl;
+	std::cout << std::string(W, '=') << std::endl;
+	std::cout << std::left
+			  << std::setw(4) << "HW"
+			  << std::setw(5) << "Cin"
+			  << std::setw(5) << "Cout"
+			  << std::setw(3) << "KH"
+			  << std::setw(3) << "KW"
+			  << " | "
+			  << std::setw(10) << "comb(ms)"
+			  << std::setw(10) << "seq(ms)"
+			  << std::setw(7) << "s/c"
+			  << std::endl;
+	std::cout << std::string(W, '-') << std::endl;
 
-    struct KConf { int kh, kw; std::vector<int> cin_list; std::vector<int> cout_list; };
-    const std::vector<KConf> kconfs = {
-        {1, 1, {16, 32, 64, 128, 256},  {16, 32, 64, 128, 256, 512, 1024}},
-        {3, 3, {16, 32, 64, 128, 256},  {512, 1024}},
-        {3, 3, {128, 512},              {48}},
-    };
+	struct KConf
+	{
+		int kh, kw;
+		std::vector<int> cin_list;
+		std::vector<int> cout_list;
+	};
+	const std::vector<KConf> kconfs = {
+		{1, 1, {16, 32, 64, 128, 256}, {16, 32, 64, 128, 256, 512, 1024}},
+		{3, 3, {16, 32, 64, 128, 256}, {512, 1024}},
+		{3, 3, {128, 512}, {48}},
+	};
 
-    for (const auto &kc : kconfs) {
-    for (int hw : HW_vals) {
-        for (int ci : kc.cin_list) {
-            for (int co : kc.cout_list) {
-                int co_half = co / 2;
-				ConvParams p;
-				p.N = 1;
-				p.C_in = ci;
-				p.H_in = hw;
-				p.W_in = hw;
-				p.KH = kc.kh;
-				p.KW = kc.kw;
+	for (const auto &kc : kconfs)
+	{
+		for (int hw : HW_vals)
+		{
+			for (int ci : kc.cin_list)
+			{
+				for (int co : kc.cout_list)
+				{
+					int co_half = co / 2;
+					ConvParams p;
+					p.N = 1;
+					p.C_in = ci;
+					p.H_in = hw;
+					p.W_in = hw;
+					p.KH = kc.kh;
+					p.KW = kc.kw;
 
-				const int h_o = p.H_out();
-				const int w_o = p.W_out();
-				const int in_sz = p.N * p.H_in * p.W_in * p.C_in;
-				const int k_sz_full = p.KH * p.KW * p.C_in * co;
-				const int k_sz_half = p.KH * p.KW * p.C_in * co_half;
-				const int out_sz_full = p.N * h_o * w_o * co;
-				const int out_sz_half = p.N * h_o * w_o * co_half;
+					const int h_o = p.H_out();
+					const int w_o = p.W_out();
+					const int in_sz = p.N * p.H_in * p.W_in * p.C_in;
+					const int k_sz_full = p.KH * p.KW * p.C_in * co;
+					const int k_sz_half = p.KH * p.KW * p.C_in * co_half;
+					const int out_sz_full = p.N * h_o * w_o * co;
+					const int out_sz_half = p.N * h_o * w_o * co_half;
 
-				std::vector<float> input(in_sz);
-				for (float &v : input)
-					v = dist(rng);
+					std::vector<float> input(in_sz);
+					for (float &v : input)
+						v = dist(rng);
 
-				std::vector<float> kernel_full(k_sz_full);
-				for (float &v : kernel_full)
-					v = dist(rng);
-				std::vector<float> kernel_h1(k_sz_half);
-				for (float &v : kernel_h1)
-					v = dist(rng);
-				std::vector<float> kernel_h2(k_sz_half);
-				for (float &v : kernel_h2)
-					v = dist(rng);
+					std::vector<float> kernel_full(k_sz_full);
+					for (float &v : kernel_full)
+						v = dist(rng);
+					std::vector<float> kernel_h1(k_sz_half);
+					for (float &v : kernel_h1)
+						v = dist(rng);
+					std::vector<float> kernel_h2(k_sz_half);
+					for (float &v : kernel_h2)
+						v = dist(rng);
 
-				std::vector<float> out_full(out_sz_full, 0.0f);
-				std::vector<float> out_h1(out_sz_half, 0.0f);
-				std::vector<float> out_h2(out_sz_half, 0.0f);
+					std::vector<float> out_full(out_sz_full, 0.0f);
+					std::vector<float> out_h1(out_sz_half, 0.0f);
+					std::vector<float> out_h2(out_sz_half, 0.0f);
 
-                auto bench = [&](auto fn) -> double {
-                    std::vector<double> durs;
-                    durs.reserve(SWEEP_ITERS);
-                    for (int it = 0; it < SWEEP_ITERS; it++) {
-                        auto t0 = std::chrono::high_resolution_clock::now();
-                        fn();
-                        auto t1 = std::chrono::high_resolution_clock::now();
-                        durs.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
-                    }
-                    std::sort(durs.begin(), durs.end());
-                    return durs[durs.size() / 2];
-                };
+					auto bench = [&](auto fn) -> double
+					{
+						std::vector<double> durs;
+						durs.reserve(SWEEP_ITERS);
+						for (int it = 0; it < SWEEP_ITERS; it++)
+						{
+							auto t0 = std::chrono::high_resolution_clock::now();
+							fn();
+							auto t1 = std::chrono::high_resolution_clock::now();
+							durs.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
+						}
+						std::sort(durs.begin(), durs.end());
+						return durs[durs.size() / 2];
+					};
 
-                // Warmup
-                for (int it = 0; it < SWEEP_WARMUP; it++) {
-					convolve_basic_param(p, input.data(), kernel_full.data(), out_full.data(), co);
+					// Warmup
+					for (int it = 0; it < SWEEP_WARMUP; it++)
+					{
+						convolve_basic_param(p, input.data(), kernel_full.data(), out_full.data(), co);
+						convolve_basic_param(p, input.data(), kernel_h1.data(), out_h1.data(), co_half);
+						convolve_basic_param(p, input.data(), kernel_h2.data(), out_h2.data(), co_half);
+					}
+
+					double t_comb = bench([&]
+										  { convolve_basic_param(p, input.data(), kernel_full.data(), out_full.data(), co); });
+					double t_seq = bench([&]
+										 {
 					convolve_basic_param(p, input.data(), kernel_h1.data(), out_h1.data(), co_half);
-					convolve_basic_param(p, input.data(), kernel_h2.data(), out_h2.data(), co_half);
-                }
+					convolve_basic_param(p, input.data(), kernel_h2.data(), out_h2.data(), co_half); });
 
-				double t_comb = bench([&]{ convolve_basic_param(p, input.data(), kernel_full.data(), out_full.data(), co); });
-                double t_seq  = bench([&]{
-					convolve_basic_param(p, input.data(), kernel_h1.data(), out_h1.data(), co_half);
-					convolve_basic_param(p, input.data(), kernel_h2.data(), out_h2.data(), co_half);
-                });
-
-                std::cout << std::left << std::fixed << std::setprecision(4)
-                          << std::setw(4)  << hw
-                          << std::setw(5)  << ci
-                          << std::setw(5)  << co
-                          << std::setw(3)  << kc.kh
-                          << std::setw(3)  << kc.kw
-                          << " | "
-                          << std::setw(10) << t_comb
-                          << std::setw(10) << t_seq
-                          << std::setw(7)  << (t_seq / t_comb)
-                          << std::endl;
-            }
-        }
-    }
-    std::cout << std::string(W, '-') << std::endl;
-    } // end kconfs
-    std::cout << std::string(W, '=') << std::endl;
-    std::cout << "Columns: comb = 1 call full Cout, seq = 2 calls Cout/2, s/c = seq/comb ratio" << std::endl;
+					std::cout << std::left << std::fixed << std::setprecision(4)
+							  << std::setw(4) << hw
+							  << std::setw(5) << ci
+							  << std::setw(5) << co
+							  << std::setw(3) << kc.kh
+							  << std::setw(3) << kc.kw
+							  << " | "
+							  << std::setw(10) << t_comb
+							  << std::setw(10) << t_seq
+							  << std::setw(7) << (t_seq / t_comb)
+							  << std::endl;
+				}
+			}
+		}
+		std::cout << std::string(W, '-') << std::endl;
+	} // end kconfs
+	std::cout << std::string(W, '=') << std::endl;
+	std::cout << "Columns: comb = 1 call full Cout, seq = 2 calls Cout/2, s/c = seq/comb ratio" << std::endl;
 }
 
 int main()
@@ -753,7 +765,7 @@ int main()
 	//  benchmark_NCHW_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
 	//  benchmark_NHWC_convs(N_BATCH, H_DIM, W_DIM, C_IN_DIM, C_OUT_1x1_DIM, C_OUT_3x3_DIM, N_ITERATIONS, WARMUP_ITERATIONS);
 	// benchmark_NCHWc_convs_googlenet();
-	benchmark_NCHWc_sweep();
-	// benchmark_NHWC_basic_sweep();
+	// benchmark_NCHWc_sweep();
+	benchmark_NHWC_basic_sweep();
 	return 0;
 }

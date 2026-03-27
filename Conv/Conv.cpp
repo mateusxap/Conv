@@ -210,61 +210,211 @@
 // 	return output;
 // }
 
-// // ------ Tensor4D_NHWC impl ------
+static std::vector<float> pad_nhwc(const std::vector<float> &input,
+								   int N, int H, int W, int C, int pad)
+{
+	const int H_p = H + 2 * pad;
+	const int W_p = W + 2 * pad;
+	std::vector<float> out(N * H_p * W_p * C, 0.0f);
 
-// inline float &Tensor4D_NHWC::operator()(int n, int h, int w, int c)
-// {
-// 	return data[n * H_dim * W_dim * C_dim + h * W_dim * C_dim + w * C_dim + c];
-// }
+	for (int n = 0; n < N; ++n)
+	{
+		for (int h = 0; h < H; ++h)
+		{
+			for (int w = 0; w < W; ++w)
+			{
+				for (int c = 0; c < C; ++c)
+				{
+					out[n * (H_p * W_p * C) + (h + pad) * (W_p * C) + (w + pad) * C + c] = input[n * (H * W * C) + h * (W * C) + w * C + c];
+				}
+			}
+		}
+	}
+	return out;
+}
+// padded_input  : N x (H_in+2) x (W_in+2) x C_in   ← уже заподджен снаружи
+// kernel_1x1    : C_in x C_out_1x1                  (HWIO)
+// kernel_3x3    : 3 x 3 x C_in x C_out_3x3          (HWIO)
+// output        : N x H_in x W_in x (C_out_1x1 + C_out_3x3)
 
-// inline const float &Tensor4D_NHWC::operator()(int n, int h, int w, int c) const
-// {
-// 	return data[n * H_dim * W_dim * C_dim + h * W_dim * C_dim + w * C_dim + c];
-// }
+void convolve_fused_1x1_3x3_param(
+	const ConvParams &p,
+	const float *padded_input,
+	const float *kernel_1x1_HWIO,
+	const float *kernel_3x3_HWIO,
+	float *output,
+	int C_out_1x1,
+	int C_out_3x3)
+{
+	const int H_out = p.H_out(); // = H_original
+	const int W_out = p.W_out(); // = W_original
+	const int C_out_total = C_out_1x1 + C_out_3x3;
 
-// Tensor4D_NHWC Tensor4D_NHWC::pad_same_3x3() const
-// {
-// 	Tensor4D_NHWC padded_output(this->B_dim, this->H_dim + 2, this->W_dim + 2, this->C_dim);
-// 	for (int n = 0; n < this->B_dim; ++n)
-// 	{
-// 		for (int h = 0; h < this->H_dim; ++h)
-// 		{
-// 			for (int w = 0; w < this->W_dim; ++w)
-// 			{
-// 				for (int c = 0; c < this->C_dim; ++c)
-// 				{
-// 					padded_output(n, h + 1, w + 1, c) = (*this)(n, h, w, c);
-// 				}
-// 			}
-// 		}
-// 	}
-// 	return padded_output;
-// }
+	// padded input strides (p.H_in/W_in — уже с паддингом)
+	const int in_stride_n = p.H_in * p.W_in * p.C_in;
+	const int in_stride_h = p.W_in * p.C_in;
+	const int in_stride_w = p.C_in;
 
-// Tensor4D_NHWC Tensor4D_NHWC::concatenateChannels(const Tensor4D &t2) const
-// {
-// 	assert(this->B_dim == t2.getB() && this->H_dim == t2.getH() && this->W_dim == t2.getW());
-// 	int N = this->B_dim, C1 = this->C_dim, C2 = t2.getC(), H = this->H_dim, W = this->W_dim;
-// 	int C_total = C1 + C2;
-// 	Tensor4D_NHWC result(N, H, W, C_total);
-// 	for (int n = 0; n < N; ++n)
-// 	{
-// 		for (int h = 0; h < H; ++h)
-// 		{
-// 			for (int w = 0; w < W; ++w)
-// 			{
-// 				for (int c = 0; c < C1; ++c)
-// 					result(n, h, w, c) = (*this)(n, h, w, c);
-// 				for (int c = 0; c < C2; ++c)
-// 					result(n, h, w, C1 + c) = t2(n, h, w, c);
-// 			}
-// 		}
-// 	}
-// 	return result;
-// }
+	// 3×3 kernel HWIO strides
+	const int k3_stride_kh = p.KH * p.C_in * C_out_3x3;
+	const int k3_stride_kw = p.C_in * C_out_3x3;
+	const int k3_stride_ci = C_out_3x3;
+
+	// 1×1 kernel HWIO stride
+	const int k1_stride_ci = C_out_1x1;
+
+	// output strides
+	const int out_stride_n = H_out * W_out * C_out_total;
+	const int out_stride_h = W_out * C_out_total;
+	const int out_stride_w = C_out_total;
+
+#pragma omp parallel for collapse(3)
+	for (int n = 0; n < p.N; ++n)
+		for (int h_out = 0; h_out < H_out; ++h_out)
+			for (int w_out = 0; w_out < W_out; ++w_out)
+			{
+				std::vector<float> acc(C_out_total, 0.0f);
+
+				const float *in_n = padded_input + n * in_stride_n;
+
+				// ── 3×3 ───────────────────────────────────────────────────────────
+				for (int kh = 0; kh < p.KH; ++kh)
+				{
+					const float *in_h = in_n + (h_out + kh) * in_stride_h;
+					const float *k3_kh = kernel_3x3_HWIO + kh * k3_stride_kh;
+
+					for (int kw = 0; kw < p.KW; ++kw)
+					{
+						const float *in_w = in_h + (w_out + kw) * in_stride_w;
+						const float *k3_kw = k3_kh + kw * k3_stride_kw;
+
+						for (int c_in = 0; c_in < p.C_in; ++c_in)
+						{
+							const float v = in_w[c_in];
+							const float *k3 = k3_kw + c_in * k3_stride_ci;
+							for (int c_out3 = 0; c_out3 < C_out_3x3; ++c_out3)
+								acc[C_out_1x1 + c_out3] += v * k3[c_out3];
+						}
+					}
+				}
+
+				// ── 1×1  (центр паддженного патча == оригинальный пиксель) ────────
+				const float *in_center = in_n + (h_out + 1) * in_stride_h + (w_out + 1) * in_stride_w;
+
+				for (int c_in = 0; c_in < p.C_in; ++c_in)
+				{
+					const float v = in_center[c_in];
+					const float *k1 = kernel_1x1_HWIO + c_in * k1_stride_ci;
+					for (int c_out1 = 0; c_out1 < C_out_1x1; ++c_out1)
+						acc[c_out1] += v * k1[c_out1];
+				}
+
+				// ── запись ────────────────────────────────────────────────────────
+				float *out_ptr = output + n * out_stride_n + h_out * out_stride_h + w_out * out_stride_w;
+
+				for (int c = 0; c < C_out_total; ++c)
+					out_ptr[c] = acc[c];
+			}
+}
+
+// ─── vector version ───────────────────────────────────────────────────────────
+//
+// padded_input_NHWC : N x (H_in+2) x (W_in+2) x C_in   ← уже заподджен снаружи
+// kernel_1x1_HWIO   : C_in x C_out_1x1
+// kernel_3x3_HWIO   : 3 x 3 x C_in x C_out_3x3
+// output            : заполняется внутри, размер N x H_in x W_in x (C_out_1x1+C_out_3x3)
+
+std::vector<float> convolve_fused_1x1_3x3(
+	const std::vector<float> &padded_input_NHWC,
+	const std::vector<float> &kernel_1x1_HWIO,
+	const std::vector<float> &kernel_3x3_HWIO,
+	std::vector<float> &output,
+	int N, int H_in, int W_in, int C_in,
+	int C_out_1x1, int C_out_3x3)
+{
+	const int C_out_total = C_out_1x1 + C_out_3x3;
+	const int H_pad = H_in + 2;
+	const int W_pad = W_in + 2;
+
+	const int in_stride_n = H_pad * W_pad * C_in;
+	const int in_stride_h = W_pad * C_in;
+	const int in_stride_w = C_in;
+
+	const int k3_stride_kh = 3 * C_in * C_out_3x3;
+	const int k3_stride_kw = C_in * C_out_3x3;
+	const int k3_stride_ci = C_out_3x3;
+
+	const int k1_stride_ci = C_out_1x1;
+
+	const int out_stride_n = H_in * W_in * C_out_total;
+	const int out_stride_h = W_in * C_out_total;
+	const int out_stride_w = C_out_total;
+
+	output.assign(N * H_in * W_in * C_out_total, 0.0f);
+
+#pragma omp parallel for collapse(3)
+	for (int n = 0; n < N; ++n)
+	{
+		for (int h_out = 0; h_out < H_in; ++h_out)
+		{
+			for (int w_out = 0; w_out < W_in; ++w_out)
+			{
+				std::vector<float> acc(C_out_total, 0.0f);
+
+				const float *in_n = padded_input_NHWC.data() + n * in_stride_n;
+
+				// ── 3×3 ───────────────────────────────────────────────────────────
+				for (int kh = 0; kh < 3; ++kh)
+				{
+					const float *in_h = in_n + (h_out + kh) * in_stride_h;
+					const float *k3_kh = kernel_3x3_HWIO.data() + kh * k3_stride_kh;
+
+					for (int kw = 0; kw < 3; ++kw)
+					{
+						const float *in_w = in_h + (w_out + kw) * in_stride_w;
+						const float *k3_kw = k3_kh + kw * k3_stride_kw;
+
+						for (int c_in = 0; c_in < C_in; ++c_in)
+						{
+							const float v = in_w[c_in];
+							const float *k3 = k3_kw + c_in * k3_stride_ci;
+							for (int c_out3 = 0; c_out3 < C_out_3x3; ++c_out3)
+							{
+								acc[C_out_1x1 + c_out3] += v * k3[c_out3];
+							}
+						}
+					}
+				}
+
+				// ── 1×1 ───────────────────────────────────────────────────────────
+				const float *in_center = in_n + (h_out + 1) * in_stride_h + (w_out + 1) * in_stride_w;
+
+				for (int c_in = 0; c_in < C_in; ++c_in)
+				{
+					const float v = in_center[c_in];
+					const float *k1 = kernel_1x1_HWIO.data() + c_in * k1_stride_ci;
+					for (int c_out1 = 0; c_out1 < C_out_1x1; ++c_out1)
+					{
+						acc[c_out1] += v * k1[c_out1];
+					}
+				}
+
+				// ── запись ────────────────────────────────────────────────────────
+				float *out_ptr = output.data() + n * out_stride_n + h_out * out_stride_h + w_out * out_stride_w;
+
+				for (int c = 0; c < C_out_total; ++c)
+				{
+					out_ptr[c] = acc[c];
+				}
+			}
+		}
+	}
+
+	return output;
+}
 
 void convolve_basic_param(const ConvParams &p, const float *input, const float *kernel,
-								  float *output, int C_out_curr)
+						  float *output, int C_out_curr)
 {
 	const int H_out = p.H_out();
 	const int W_out = p.W_out();
@@ -326,9 +476,9 @@ void convolve_basic_param(const ConvParams &p, const float *input, const float *
 }
 
 std::vector<float> convolve_basic(const std::vector<float> &input_NHWC,
-							  const std::vector<float> &kernel_HWIO,
-							  std::vector<float> &output,
-							  int C_out_curr)
+								  const std::vector<float> &kernel_HWIO,
+								  std::vector<float> &output,
+								  int C_out_curr)
 {
 	const int in_stride_n = H_in * W_in * C_in;
 	const int in_stride_h = W_in * C_in;
@@ -438,62 +588,6 @@ std::vector<float> conv_optimized_w_c(const std::vector<float> &input_NCHWc, con
 	}
 	return output;
 }
-
-// Tensor4D_NHWC convolve_fused_1x1_3x3_no_if(const Tensor4D_NHWC &input,
-// 																					 const Tensor4D_NHWC &kernel_1x1,
-// 																					 const Tensor4D_NHWC &kernel_3x3)
-// {
-// 	const int N = input.getB();
-// 	const int C_in = input.getC();
-// 	const int H_in = input.getH();
-// 	const int W_in = input.getW();
-// 	const int C_out_1x1 = kernel_1x1.getB();
-// 	const int C_out_3x3 = kernel_3x3.getB();
-// 	const int C_out_total = C_out_1x1 + C_out_3x3;
-
-// 	Tensor4D_NHWC padded_input = input.pad_same_3x3();
-// 	Tensor4D_NHWC output(N, H_in, W_in, C_out_total);
-
-// 	for (int n = 0; n < N; ++n)
-// 	{
-// 		for (int h_out = 0; h_out < H_in; ++h_out)
-// 		{
-// 			for (int w_out = 0; w_out < W_in; ++w_out)
-// 			{
-// 				// 3x3 part
-// 				for (int kh = 0; kh < 3; ++kh)
-// 				{
-// 					for (int kw = 0; kw < 3; ++kw)
-// 					{
-// 						for (int c_in = 0; c_in < C_in; ++c_in)
-// 						{
-// 							float input_val_3x3 = padded_input(n, h_out + kh, w_out + kw, c_in);
-// 							for (int c_out3 = 0; c_out3 < C_out_3x3; ++c_out3)
-// 							{
-// 								int kernel_3x3_flat_idx = c_out3 * (3 * 3 * C_in) + kh * (3 * C_in) + kw * (C_in) + c_in;
-// 								output(n, h_out, w_out, C_out_1x1 + c_out3) += input_val_3x3 * kernel_3x3.data[kernel_3x3_flat_idx];
-// 								/*int kernel_3x3_full_idx = c_out3 * (C_in * 9) + c_in * 9 + kh * 3 + kw;
-// 								output(n, h_out, w_out, C_out_1x1 + c_out3) += input_val_3x3 * kernel_3x3.data[kernel_3x3_full_idx]*/
-// 								; // ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ (ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½)
-// 							}
-// 						}
-// 					}
-// 				}
-// 				for (int c_in = 0; c_in < C_in; ++c_in)
-// 				{ // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ (ï¿½ï¿½ï¿½. NCHW) ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
-// 					// 1x1 part
-// 					float input_val_center = padded_input(n, h_out + 1, w_out + 1, c_in);
-// 					for (int c_out1 = 0; c_out1 < C_out_1x1; ++c_out1)
-// 					{
-// 						int kernel_1x1_full_idx = c_out1 * C_in + c_in;
-// 						output(n, h_out, w_out, c_out1) += input_val_center * kernel_1x1.data[kernel_1x1_full_idx]; // ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
-// 					}
-// 				}
-// 			}
-// 		}
-// 	}
-// 	return output;
-// }
 
 std::vector<float> conv_optimized_c_w(const std::vector<float> &input_NCHWc, const std::vector<float> &kernel_OIHWio, std::vector<float> &output, int C_out_curr)
 {
