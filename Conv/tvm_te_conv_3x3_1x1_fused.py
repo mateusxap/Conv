@@ -2,18 +2,18 @@ import tvm
 from tvm import te
 
 # 1. Задаем размеры
-N, C, H, W = 1, 3, 8, 8      # Входной тензор (Батч, Каналы, Высота, Ширина)
-K3, R3, S3 = 16, 3, 3        # Ядро для 3x3 (16 выходных каналов)
-K1, R1, S1 = 16, 1, 1        # Ядро для 1x1 (16 выходных каналов)
+N, H, W, C = 1, 8, 8, 3      # Входной тензор NHWC (Батч, Высота, Ширина, Каналы)
+R3, S3, K3 = 3, 3, 16        # Ядро 3x3 HWIO (Высота, Ширина, Входные, Выходные)
+R1, S1, K1 = 1, 1, 16        # Ядро 1x1 HWIO
 
-# Вычисляем размер выхода (без паддинга, размер уменьшится из-за 3x3)
+# Вычисляем размер выхода
 out_h = H - R3 + 1
 out_w = W - S3 + 1
 
-# 2. Создаем входные тензоры (Placeholders)
-A = te.placeholder((N, C, H, W), name="A", dtype="float32")
-F3 = te.placeholder((K3, C, R3, S3), name="F3", dtype="float32")
-F1 = te.placeholder((K1, C, R1, S1), name="F1", dtype="float32")
+# 2. Создаем входные тензоры (Placeholders) в форматах NHWC и HWIO
+A = te.placeholder((N, H, W, C), name="A", dtype="float32")
+F3 = te.placeholder((R3, S3, C, K3), name="F3", dtype="float32")
+F1 = te.placeholder((R1, S1, C, K1), name="F1", dtype="float32")
 
 # 3. Описываем математику (Compute)
 
@@ -22,36 +22,36 @@ rc3 = te.reduce_axis((0, C), name="rc3")
 ry3 = te.reduce_axis((0, R3), name="ry3")
 rx3 = te.reduce_axis((0, S3), name="rx3")
 
-# Свертка 3x3 (стандартная)
+# Свертка 3x3 (NHWC)
 conv3x3 = te.compute(
-    (N, K3, out_h, out_w),
-    lambda n, k, h, w: te.sum(
-        A[n, rc3, h + ry3, w + rx3] * F3[k, rc3, ry3, rx3],
-        axis=[rc3, ry3, rx3]
+    (N, out_h, out_w, K3), # Каналы K3 теперь в конце!
+    lambda n, h, w, k: te.sum(
+        A[n, h + ry3, w + rx3, rc3] * F3[ry3, rx3, rc3, k], # Индексы изменены под NHWC и HWIO
+        axis=[ry3, rx3, rc3]
     ),
     name="conv3x3"
 )
 
-# Ось редукции для 1x1 (только по каналам)
+# Ось редукции для 1x1
 rc1 = te.reduce_axis((0, C), name="rc1")
 
-# Свертка 1x1 (МАГИЯ ЗДЕСЬ: берем h+1 и w+1, чтобы попасть в центр окна 3x3)
+# Свертка 1x1 (NHWC, смещение в центр h+1, w+1)
 conv1x1 = te.compute(
-    (N, K1, out_h, out_w),
-    lambda n, k, h, w: te.sum(
-        A[n, rc1, h + 1, w + 1] * F1[k, rc1, 0, 0],
+    (N, out_h, out_w, K1),
+    lambda n, h, w, k: te.sum(
+        A[n, h + 1, w + 1, rc1] * F1[0, 0, rc1, k],
         axis=[rc1]
     ),
     name="conv1x1"
 )
 
-# Объединяем результаты (Конкатенация по оси каналов K)
+# Объединяем результаты (Конкатенация по последней оси K)
 joined_conv = te.compute(
-    (N, K3 + K1, out_h, out_w),
-    lambda n, k, h, w: tvm.tir.if_then_else(
+    (N, out_h, out_w, K3 + K1),
+    lambda n, h, w, k: tvm.tir.if_then_else(
         k < K3,
-        conv3x3[n, k, h, w],
-        conv1x1[n, k - K3, h, w]
+        conv3x3[n, h, w, k],
+        conv1x1[n, h, w, k - K3]
     ),
     name="joined_conv"
 )
@@ -59,15 +59,21 @@ joined_conv = te.compute(
 # 4. Создаем расписание (Schedule)
 s = te.create_schedule(joined_conv.op)
 
-# Получаем оси итогового тензора: n, k, h, w
-n, k, h, w = joined_conv.op.axis
+# Получаем оси итогового тензора: n, h, w, k
+n, h, w, k = joined_conv.op.axis
 
-# ИСПРАВЛЕНИЕ: Меняем порядок циклов! Сначала пиксели (h, w), потом каналы (k)
-s[joined_conv].reorder(n, h, w, k)
-
-# Теперь привязываем вычисления к циклу по ширине (w)
+# Привязываем вычисления к циклу по ширине (w)
 s[conv3x3].compute_at(s[joined_conv], w)
 s[conv1x1].compute_at(s[joined_conv], w)
+
+# МАГИЯ СОВПАДЕНИЯ С C++:
+# В твоем C++ коде внутренние циклы идут так: kh -> kw -> c_in -> c_out
+# Давай заставим TVM сделать точно так же!
+k_3 = conv3x3.op.axis[3] # Ось выходных каналов для 3x3
+s[conv3x3].reorder(ry3, rx3, rc3, k_3)
+
+k_1 = conv1x1.op.axis[3] # Ось выходных каналов для 1x1
+s[conv1x1].reorder(rc1, k_1)
 
 # 5. Генерируем и печатаем псевдо-C код (IR)
 print("=== Сгенерированный код (IR) ===")
